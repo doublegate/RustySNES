@@ -136,9 +136,12 @@ ran=0
 #   into the first vblank line, not at the vblank edge, so a $4212 bit-0 poll at NMI entry sees the read
 #   not-yet-started (bit 0 = 0) even though it is armed. snes9x performs the read as an instant latch
 #   with a 3-scanline busy flag anchored at vblank start, so $4212 already reads busy at entry and it
-#   fails the test's phase A. Mesen2 delays the start (busy=0 at entry) and passes, and RustySNES does
-#   too since the auto-read-start-timing fix. Documented by nocash fullsnes (the read starts ~dot
-#   32.5-95.5 of the first vblank line). Region-independent — snes9x fails it identically NTSC and PAL.
+#   fails the test's phase A. RustySNES passes it since the auto-read-start-timing fix, and it is the
+#   ONLY one that does: this line used to say "Mesen2 delays the start and passes", and that is
+#   RETRACTED -- measured 2026-08-01, Mesen2 fails it, and so does ares. See the F1.10 entry under
+#   MESEN2_KNOWN_FAILURES for the 1-vs-3 statement. Documented by nocash fullsnes (the read starts
+#   ~dot 32.5-95.5 of the first vblank line). Region-independent — snes9x fails it identically NTSC
+#   and PAL.
 # snes9x, +1 test (F1.08 "Auto-read start dot"): the golden sibling of F1.10. After the vblank edge the
 #   cart requires $4212 bit 0 to read *closed* first (proving the read has not started), then latches the
 #   H counter at the closed->open transition as the start dot (~149 with instrument latency; RustySNES
@@ -176,29 +179,37 @@ SNES9X_KNOWN_FAILURES=14
 # `idx286 F1.10`, and in the current catalogue those indices are `F1.01` and `F1.08`. An index in a
 # comment is a fact with a shelf life; the row name is not. Map with SOURCE_CATALOG.tsv.
 #
-#   F1.03  code 2  | Group F input rows. mesen_crossval.lua makes exactly ONE emu.setInput
-#   F1.10  code 2  | call because in this build the port argument does not select a
-#                          | controller -- 0/1/2 all land on controller 1 -- so a second call for
-#                          | port 2 overwrites port 1 with a mask containing no Start and the cart
-#                          | never leaves its menu. The cost is that PAD2_CONTRACT-dependent rows
-#                          | cannot pass here. Covered by the in-repo harness and snes9x, which do
-#                          | drive both ports. See that script's comment for the full account.
+# MEASURED 2026-08-01 with `scripts/accuracysnes/mesen_failing_set_probe.lua` (read at R_DONE, frame
+# 482): the failing set is exactly `F1.03` and `F1.10`, both code 2. The two fail for DIFFERENT
+# reasons, and lumping them under one rationale is what hid that for as long as it did.
 #
-# **`F1.10`'s attribution above is DOUBTED, and stated as doubted rather than quietly fixed.**
-# `f1_require_contract` reads `$4016` only — port 1 — so `F1.10` does not depend on `PAD2_CONTRACT`
-# at all, and its code 2 means "$4212 read busy at the very start of the vblank line", which has
-# nothing to do with which controllers are held. The snes9x block above independently says Mesen2
-# *passes* `F1.10`. Both cannot be right. Resolving it needs Mesen2's failing SET read at `DONE` and
-# mapped through SOURCE_CATALOG.tsv, which is a measurement nobody has taken since the catalogue
-# grew; until then treat the count (2) as trustworthy and this row attribution as not.
+#   F1.03  code 2  | The port-2 limitation, and the ONLY row here it explains. F1.03 clocks both
+#                  | ports out of one latch ($4016 and $4017), so it genuinely needs a second
+#                  | controller held. mesen_crossval.lua makes exactly ONE emu.setInput call because
+#                  | in this build the port argument does not select a controller -- 0/1/2 all land
+#                  | on controller 1 -- so a port-2 call would overwrite port 1 with a mask
+#                  | containing no Start and the cart would never leave its menu. Covered by the
+#                  | in-repo harness and snes9x, which do drive both ports.
 #
-#   E8.01 used to be a third entry here, and is not any more. Its two rejected drafts asserted
-#   something a phase the cart cannot control got to decide -- the delay from a KON write to the
-#   voice starting is a sawtooth in that phase -- so the row passed on the PAL image and failed on
-#   the NTSC one of the SAME build, which is the signature of a test measuring its own timing rather
-#   than the hardware's. The write-cancellation sweep that replaced it has an answer no phase can
-#   move, and Mesen2 now agrees with it. Kept as a note rather than deleted: "a reference disagrees"
-#   was the wrong conclusion, and the record of that is worth more than the line it saves.
+#   F1.10  code 2  | NOT the port-2 limitation, though this comment said so until it was measured.
+#                  | `f1_require_contract` reads $4016 only, and code 2 means "$4212 read busy at
+#                  | the very start of the vblank line". Mesen2 fails it for the same reason snes9x
+#                  | and ares do -- the automatic read modelled as starting at the vblank edge
+#                  | rather than a few dozen cycles into the line.
+#
+# **So `F1.10` is 1-vs-3, with RustySNES passing ALONE.** snes9x, Mesen2 and ares all fail it. The
+# row is Documented -- nocash fullsnes puts the read's start at ~dot 32.5-95.5 of the first vblank
+# line -- and RustySNES passes only because of a deliberate auto-read-start-timing fix. A first-party
+# accuracy cart being right where three references are wrong is the point of having one, but 1-vs-3
+# on a scored row is stated here rather than left to be mistaken for consensus. If that citation
+# ever turns out to be misread, this row is where it will show.
+# **The Mesen2 runner can under-report under load.** One run during this investigation returned 1
+# where every other returned 2, while four other `dotnet` processes were live. `--timeout=60` is a
+# wall-clock bound, so a loaded machine can cut the battery short and report a SMALLER failing count
+# — which reads as "things improved", the most dangerous direction for a gate to be wrong in. Five
+# consecutive runs on an idle machine gave 2 every time, and `mesen_failing_set_probe.lua` gave the
+# identical SET four times. If this gate ever reports fewer failures than expected, re-run it idle
+# before believing it.
 MESEN2_KNOWN_FAILURES=2
 
 # The PAL image's own count: only F1.03 fails there, so F1.10 passes on PAL and fails on NTSC under
