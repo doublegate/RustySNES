@@ -776,7 +776,9 @@ Recorded per row, because "it is hard" is not usable and "here is the specific o
 **Blocked on an observable the SPC700 cannot reach in time.** The instruction set's floor for three
 consecutive DSP register reads is 21 cycles of a 32-cycle sample (`E8.06`, withdrawn). Everything
 that needs to catch two registers in different phases of one sample is behind that same wall:
-`E10.02` (the T0-T31 access schedule), `E10.03` (`ENDX`/`OUTX`/`ENVX` on three separate cycles).
+`E10.02` (the T0-T31 access schedule), `E10.03` (the DSP registers `ENDX` (`$7C`), `VxOUTX`
+(`$x9`) and `VxENVX` (`$x8`) written on three separate cycles — DSP registers throughout this
+section, never the `$2140-$2143` ports).
 
 **Blocked on nothing being observable at all.** `E9.16` (the output is XORed with `$FFFF` by the
 post-amp) is downstream of every register the cart can read — it changes what reaches the DAC and
@@ -818,8 +820,8 @@ with `E9.11`'s wrapping taps.
 - **Prefer an equality against a control to a threshold against nothing.** `E3.13` compares a voice
   reading the RAM shadow against a voice reading an identical copy in ordinary RAM; `E9.09` compares
   a wrapped echo entry against an unwrapped one. Both would have been "is it non-zero" rows
-  otherwise, and both would have passed on a broken setup — `E3.13`'s did, twice, and the control
-  voice is what said so.
+  otherwise, and both would have passed on a broken setup. `E3.13` did fail on one, twice, and the
+  control voice is what said so.
 
 ### `E8.01` — two rejected drafts, and what they were really measuring
 
