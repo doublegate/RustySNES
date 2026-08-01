@@ -78,6 +78,14 @@ struct Voice {
     adsr1: u8,
     gain: u8,
     envx: u8,
+    /// The raw `$4C` bit as last written — a **mirror, not the control**.
+    ///
+    /// `KON` is write-triggered and non-persistent (`E8.04`), so what the voice actually keys on is
+    /// [`Voice::keylatch`]: `misc29`/`misc30` clear it against `_keyon` once per sample, which is
+    /// what makes a second `$4C` write cancel a pending key-on (`E8.01`). Nothing downstream reads
+    /// this field, and a reader who mistakes it for the authoritative flag would reintroduce
+    /// exactly the "keys on for as long as the bit is set" bug the latch exists to prevent. Kept
+    /// because it is part of the serialized layout; removing it is a save-state format change.
     keyon: bool,
     keyoff: bool,
     modulate: bool,
