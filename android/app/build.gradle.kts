@@ -141,5 +141,16 @@ dependencies {
     // The AAR classifier is required on Android -- the plain `net.java.dev.jna:jna` jar (what
     // UniFFI's Kotlin bindings assume on a desktop JVM) does not bundle Android's native
     // `libjnidispatch.so`.
-    implementation("net.java.dev.jna:jna:5.15.0@aar")
+    //
+    // 5.17.0, not 5.15.0, because of the 16 KB page-alignment requirement -- and the version was
+    // chosen by measuring the published AARs, per ABI, rather than from a changelog:
+    //
+    //   5.15.0  arm64-v8a 0x10000  x86_64 0x1000  armeabi-v7a 0x1000  x86 0x1000
+    //   5.16.0+ arm64-v8a 0x4000   x86_64 0x4000  armeabi-v7a 0x4000  x86 0x4000
+    //
+    // So 5.15.0 satisfies the requirement on arm64 (64 KB is a multiple of 16 KB) and violates it
+    // on every other ABI -- which is why checking one ABI and generalising gave the wrong answer
+    // the first time. 5.16.0 is the first release that fixes it; 5.17.0 is taken as the nearest
+    // settled patch line after that change.
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
 }

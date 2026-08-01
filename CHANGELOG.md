@@ -124,13 +124,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   six 64-bit libraries so a packaging change that drops one fails rather than passing more quietly.
   `Cargo.lock` and `crates/rustysnes-monetization/**` are now in the path filters too.
 
-  **And the gate's own alignment test was wrong, which the APK run exposed.** It compared each
-  `PT_LOAD` Align to `0x4000` for *equality*, but the requirement is "aligned to at least 16 KB" —
-  a divisibility property. JNA's `libjnidispatch.so` ships at `0x10000` (64 KB), which is valid and
-  in fact stricter, and the equality test reported it as a violation. Measured before acting:
-  pulling the JNA AARs for 5.15.0/5.16.0/5.17.0/5.19.1 shows 5.15.0 at `0x10000` and the later ones
-  at `0x4000` — all fine — so bumping the dependency would have "fixed" nothing. The test is now
-  `align % 16384 == 0`, verified against real files to accept 64 KB and 16 KB and reject 4 KB.
+  **The gate's own alignment test was wrong too, and so was a shipped `libjnidispatch.so`.** The
+  test compared each `PT_LOAD` Align to `0x4000` for *equality*, but the requirement is "aligned to
+  at least 16 KB" — a divisibility property, and 64 KB satisfies it. Now `align % 16384 == 0`,
+  verified against real files to accept 64 KB and 16 KB and reject 4 KB.
+
+  Fixing that exposed a genuine one underneath, and finding it required measuring **per ABI** — the
+  first pass checked only `arm64-v8a` and generalised, which produced a confident wrong conclusion
+  that no dependency bump was needed. Reading the published JNA AARs:
+
+  | version | arm64-v8a | x86_64 | armeabi-v7a | x86 |
+  |---|---|---|---|---|
+  | 5.15.0 | `0x10000` | `0x1000` | `0x1000` | `0x1000` |
+  | 5.16.0+ | `0x4000` | `0x4000` | `0x4000` | `0x4000` |
+
+  So the pinned 5.15.0 satisfied the requirement on arm64 and **violated it on every other ABI**.
+  Bumped to 5.17.0 — 5.16.0 is the first release that fixes it, 5.17.0 the nearest settled patch
+  line after that change.
 
   The hardcoded "expect exactly 6 libraries" assertion was wrong too (the APK carries 10, including
   two third-party ones) and is replaced by a by-name presence check for the three this project
