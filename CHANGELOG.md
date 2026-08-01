@@ -32,9 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reproduce — which explains why two cart-side `A3.03` fixes moved nothing: they were chasing a
     number that was not there.
 
-  The open question is now **"why does the battery never start"**, not "why does it stop". Prime
-  suspect, recorded in `docs/accuracysnes-plan.md` and not yet confirmed: the input contract holds
-  B + Start + X + R from power-on, so a menu that starts on a *press edge* never sees one.
+  The open question is now **"why does the battery never start"**, not "why does it stop".
+
+  The first suspect — that the contract's constant hold from power-on denies a menu its press edge —
+  was tested and **refuted**: applying the contract from frame 0, 30 or 120 gives the same result at
+  1200 frames. The live lead is instead that `R_STATUS` holds exactly **24** non-zero bytes,
+  *constant across runs* while the magic bytes *vary* — so they are not uninitialised WRAM, and since
+  indices 0-39 read zero they sit at index >= 40. Both probes are committed so the next attempt
+  starts from the measurement rather than repeating it.
 
 - **PPU: the field flag's doc contradicted the code, and nothing pinned either.** `Ppu::field` is
   `$213F` bit 7 and toggles at the end of **every** frame; its doc comment said "toggles each frame
