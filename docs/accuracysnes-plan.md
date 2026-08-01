@@ -743,11 +743,25 @@ timing **phase**, which is the trap this document already records twice. So the 
 `E8.01` today is not "three implementations agree and Mesen2 is the outlier" — it is **the row is not
 robust**, and its agreement elsewhere may be luck of alignment rather than the mechanism.
 
-**That, not the missing fourth opinion, is why `E8.01` is not merged.** Fixing it means making the
-measurement insensitive to where the cart's own phase starts — e.g. sweeping several sub-sample
-offsets and asserting that *at least one* moves the delay, rather than asserting a single chosen
-offset does. The `A5.19` mode-differential work solved a structurally similar problem by putting both
-arms inside the measured span; the same instinct applies.
+**That, not the missing fourth opinion, is why `E8.01` is not merged.**
+
+**The fix is to change the INSTRUMENT, not to sweep more offsets** — and it is a pattern this project
+has already used. The timer is the problem: at `T2DIV = 2` one tick *is* one output sample, so a
+32-cycle shift moves the tick boundary and the `KON` together and cancels exactly (measured diff
+**0**), while a 16-cycle shift dodges that but only crosses a poll boundary for *some* starting
+phases — which is the fragility. Sweeping offsets does not escape this, because the offsets that are
+whole ticks always cancel and the ones that are not remain phase-dependent.
+
+Use a **tight poll-count instrument** instead: count loop iterations until `ENVX` reads non-zero,
+rather than timer ticks. Resolution becomes a few SPC cycles instead of a whole sample, the counter
+does not quantise to the sample clock, and a sub-sample offset shows up directly rather than only
+when it happens to cross a boundary. This is exactly what rescued `F1.09`, which was vacuous at line
+granularity and landed once it counted polls — see [[accuracysnes-f1-09-vacuous]].
+
+Practical notes for that rewrite: `inc_dp` gives the counter; the loop must be tight enough that its
+own period is well under one sample; and with the timer gone, `PORT3` is freed from the guard's
+sibling duty, so the four measurements a proper phase sweep wants can be reported without a second
+upload.
 
 **The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
 `ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
