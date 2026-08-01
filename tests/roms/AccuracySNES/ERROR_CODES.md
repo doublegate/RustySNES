@@ -2533,9 +2533,9 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the key-on/k
 
 | Code | Byte | Meaning |
 |---|---|---|
-| 1 | `$02` | the voice was still sounding when E8.01's second key-on was armed, so the phase-B measurement is of an envelope that never reached silence and says nothing about the KON poll rate |
-| 2 | `$04` | E8.01 phase A's key-on delay is outside the plausible band, so the instrument is not measuring a key-on at all and the phase comparison below means nothing |
-| 3 | `$06` | E8.01 phase B's key-on delay is outside the plausible band, so the instrument is not measuring a key-on at all and the phase comparison below means nothing |
+| 1 | `$02` | a voice was still sounding when one of E8.01's key-ons was armed, so that phase measured an envelope that never reached silence and says nothing about the KON poll rate |
+| 2 | `$04` | E8.01 phase A's key-on delay is outside the measured band (it reads 8), so the instrument is not timing a key-on from silence and the phase comparison below means nothing |
+| 3 | `$06` | E8.01 phase B's key-on delay is outside the measured band (it reads 7), so the instrument is not timing a key-on from silence and the phase comparison below means nothing |
 | 4 | `$08` | shifting the key-on one output sample later did not change the measured delay, so KON is being polled every sample (32 kHz) rather than every second sample (16 kHz) |
 
 ### E8.02 — Key-on takes 5 samples

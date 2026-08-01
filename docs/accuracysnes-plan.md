@@ -655,37 +655,38 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 | `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
 | `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
 
-**`E8.01` AUTHORED AND FAILING — a broken test, diagnosed. Branch `wip/e8-01-broken-band`, no PR.**
+**`E8.01` — now passing on RustySNES and snes9x; Mesen2 still short. Branch
+`wip/e8-01-broken-band`, no PR.**
 
-Written, registered, and built clean through every generator gate (the menu-label cap, the dossier
-map, and the slot-collision gate each caught something and each was fixed). Then the cross-check
-rejected it immediately, on **all three** implementations:
-
-| | before | after |
+| | first draft | now |
 |---|---|---|
-| RustySNES (in-repo) | pass | **FAIL code 2** |
-| snes9x | 14 known failures | **15** |
-| Mesen2 | 1 | **2** |
+| RustySNES | FAIL code 2 | **pass** |
+| snes9x | 15 failing (baseline 14) | **14 — baseline** |
+| Mesen2 | 2 (baseline 1) | **3** |
 
-Three implementations failing identically is this project's **broken-test signature**, and it is
-right: **code 2 is phase A's band guard**, and the band was wrong. I set it to `4..13` by reusing
-`E8.02`'s numbers — but `E8.02`'s `4..11` is the **delta** between a sounding-voice baseline and a
-key-on, whereas `E8.01` phase A reads an **absolute** delay (key-on latency *plus* the poll-loop
-cost). A band for a difference cannot bound a raw reading.
+**Two real defects were found and fixed, neither of which was the band:**
 
-**Do not simply widen it.** Measure first: read slots **256/257** (`$7E0100`/`$7E0101`) out of a real
-run and set the band from what the instrument actually reports, then re-derive. Widening to make it
-pass is how a row ends up asserting nothing.
+1. **Both phases must start from silence.** The first draft keyed phase A straight off
+   `e8_02_sounding_voice`, which leaves the voice at full scale — so its poll exited on the first
+   pass (**1** tick) while phase B, keyed from silence, measured **8**. The 7-tick gap was that
+   asymmetry, not the poll phase, and *no band would have made that comparison mean anything*.
+   Extracted `e8_01_silence` and used it before both phases, with one guard slot covering both.
+2. **The offset must be a HALF sample, not a whole one.** A full-sample offset measured a difference
+   of **zero** — at `T2DIV = 2` one timer tick, one output sample and the shift are all 32 SPC
+   cycles, so shifting by exactly that moves timer, sample clock and `KON` in lockstep and cancels.
+   Eight `NOP`s (16 cycles) move `KON`'s phase *within* the sample and measure **8 vs 7**, the ±1 a
+   16 kHz poll predicts.
 
-**Then re-check the row's own premise before trusting a pass.** With phase A out of band, the
-difference assertion has never been meaningfully evaluated, so it is still unknown whether the
-16-`NOP` offset moves the reading at all. Two things to confirm once the band is right:
-- that 32 SPC cycles really is one output sample for this configuration, rather than an assumption
-  carried from the 1.024 MHz / 32 kHz round numbers;
-- that the two phases do not simply land on the same poll boundary, which would report "no
-  difference" on correct hardware and make the row assert the opposite of its intent.
+Bands are now set from measured values (phases `5..11` around 8 and 7; guard `0..4` because twelve
+release blocks leave a residual of 2 out of `$7F`, and demanding exact zero would pin the block count
+rather than that the release finished).
 
-The design above still stands; only the band and the unverified premise need work.
+**Still open, and why this is not a PR yet:** Mesen2 went 1 → 3 failing. One of those is the
+pre-existing `A2.10`. The others are unidentified, and the likely shape is the documented trap that
+*a verdict encoding a timing phase changes for reasons unrelated to its subject* — adding a test here
+has shifted the DSP poll phase for something downstream before. Identify **which** Mesen2 rows fail
+before landing; if a neighbour moved, this row needs to stop perturbing the phase rather than the
+neighbour needing a wider band.
 
 **`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
 `e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds

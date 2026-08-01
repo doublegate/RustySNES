@@ -21332,7 +21332,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #343
+    lda #433
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -21394,8 +21394,11 @@ CATALOG_IMPL = 1
     and #$00FF
     ; record slot 258: E8.01 ENVX before the second key-on (the arming guard)
     sta f:$7EE404
-    ; The guard first: the voice has to be silent before phase B keys it on, or phase B measures
-    ; a climb that never stopped rather than a key-on. This is E8.02's guard and its reason.
+    ; The guard first, covering BOTH phases -- either reading being non-zero makes the slot
+    ; non-zero, so one slot guards two key-ons. The band is 0..4 rather than exactly 0: twelve
+    ; release blocks leave a measured residual of 2 out of a full-scale $7F, which is 1.5% and
+    ; far below anything that would let a poll exit early. Demanding exact zero would be
+    ; pinning how many delay blocks the release happens to need, not that it finished.
     rep #$30
     .a16
     .i16
@@ -21405,7 +21408,7 @@ CATALOG_IMPL = 1
     bcs :+
     jmp @fail1
   :
-    cmp #$0001
+    cmp #$0005
     bcc :+
     jmp @fail1
   :
@@ -21414,21 +21417,21 @@ CATALOG_IMPL = 1
     ; difference test below by accident.
     lda f:$7E0100
     and #$00FF
-    cmp #$0004
+    cmp #$0005
     bcs :+
     jmp @fail2
   :
-    cmp #$000E
+    cmp #$000C
     bcc :+
     jmp @fail2
   :
     lda f:$7E0101
     and #$00FF
-    cmp #$0004
+    cmp #$0005
     bcs :+
     jmp @fail3
   :
-    cmp #$000E
+    cmp #$000C
     bcc :+
     jmp @fail3
   :
@@ -21464,21 +21467,21 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail1:
-    ; the voice was still sounding when E8.01's second key-on was armed, so the phase-B measurement is of an envelope that never reached silence and says nothing about the KON poll rate
+    ; a voice was still sounding when one of E8.01's key-ons was armed, so that phase measured an envelope that never reached silence and says nothing about the KON poll rate
     sep #$20
     .a8
     lda #$02
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; E8.01 phase A's key-on delay is outside the plausible band, so the instrument is not measuring a key-on at all and the phase comparison below means nothing
+    ; E8.01 phase A's key-on delay is outside the measured band (it reads 8), so the instrument is not timing a key-on from silence and the phase comparison below means nothing
     sep #$20
     .a8
     lda #$04
     sta f:$7EE010
     jml test_restore
 @fail3:
-    ; E8.01 phase B's key-on delay is outside the plausible band, so the instrument is not measuring a key-on at all and the phase comparison below means nothing
+    ; E8.01 phase B's key-on delay is outside the measured band (it reads 7), so the instrument is not timing a key-on from silence and the phase comparison below means nothing
     sep #$20
     .a8
     lda #$06
@@ -33370,20 +33373,28 @@ apu_prog_98:
     .byte $00, $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8
     .byte $05, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8
     .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $8D, $20, $FE, $FE, $8F, $02, $FC, $E4, $FF
+    .byte $00, $C4, $F3, $8D, $20, $FE, $FE, $8F, $02, $FC, $E8, $5C
+    .byte $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
+    .byte $FE, $FE, $8D, $00, $FE, $FE, $E8, $5C, $C4, $F2, $E8, $00
+    .byte $C4, $F3, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F7, $E4, $FF
     .byte $8F, $84, $F1, $E8, $4C, $C4, $F2, $E8, $01, $C4, $F3, $E8
     .byte $08, $C4, $F2, $E4, $F3, $68, $00, $F0, $F6, $8F, $80, $F1
     .byte $E4, $FF, $C4, $F5, $E8, $5C, $C4, $F2, $E8, $01, $C4, $F3
     .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
     .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
-    .byte $8D, $00, $FE, $FE, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3
-    .byte $E8, $08, $C4, $F2, $E4, $F3, $C4, $F7, $00, $00, $00, $00
-    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-    .byte $E4, $FF, $8F, $84, $F1, $E8, $4C, $C4, $F2, $E8, $01, $C4
-    .byte $F3, $E8, $08, $C4, $F2, $E4, $F3, $68, $00, $F0, $F6, $8F
-    .byte $80, $F1, $E4, $FF, $C4, $F6, $E8, $4C, $C4, $F2, $E8, $00
-    .byte $C4, $F3, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA
-    .byte $E8, $80, $C4, $F1, $5F, $C0, $FF
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
+    .byte $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $08, $C4, $F2
+    .byte $E4, $F3, $C4, $10, $E4, $10, $04, $F7, $C4, $F7, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $E4, $FF, $8F, $84, $F1, $E8
+    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $E8, $08, $C4, $F2, $E4
+    .byte $F3, $68, $00, $F0, $F6, $8F, $80, $F1, $E4, $FF, $C4, $F6
+    .byte $E8, $4C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5A, $C4, $F4
+    .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
+    .byte $FF
 apu_prog_99:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01

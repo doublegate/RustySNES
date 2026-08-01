@@ -5305,17 +5305,23 @@ fn e5_10() -> Test {
 /// consistent with a 16 kHz poll and a 32 kHz one. What separates them is how the delay responds to
 /// **shifting the whole measurement by one sample**:
 ///
-/// | poll rate | delay at offset 0 | delay at offset 1 sample |
+/// | poll rate | delay at offset 0 | delay at offset ½ sample |
 /// |---|---|---|
 /// | every 2nd sample (hardware) | `D` | `D ± 1` — the write crosses a poll boundary |
 /// | every sample | `D` | `D` — nothing to cross |
+///
+/// **The offset must be a *half* sample, not a whole one.** A full-sample offset was tried first and
+/// measured a difference of **zero**: at `T2DIV = 2` one timer tick, one output sample and the shift
+/// are all 32 SPC cycles, so shifting by exactly that moves the timer, the sample clock and the
+/// `KON` in lockstep and cancels. Half a sample moves `KON`'s phase *within* the sample without
+/// displacing the tick, and measures **8 vs 7**.
 ///
 /// So the assertion is *"the two differ"*, which is exactly the shape `assert_a16_range` expresses
 /// without hand-writing a verdict byte.
 ///
 /// # Where the offset goes, and why it is not between the timer and the `KON`
 ///
-/// The 16 `NOP`s (2 cycles each = 32 SPC cycles = **one output sample**) are emitted **before**
+/// The 8 `NOP`s (2 cycles each = 16 SPC cycles = **half an output sample**) are emitted **before**
 /// `e8_02_time_to_envx`, not inside it. Putting them between the timer start and the `KON` write
 /// would add their cost to the measured interval directly, and the row would then report a
 /// difference of 1 on *any* core — passing while measuring the `NOP`s rather than the poll. Placed
@@ -5334,20 +5340,27 @@ fn e8_01() -> Test {
     let mut p = e8_02_sounding_voice();
     p.mov_dp_imm(0xFC, 0x02); // T2DIV = 2: one tick per output sample
 
-    // Phase A: the key-on delay at the cart's natural phase.
+    // BOTH phases must start from silence. The first draft keyed phase A straight off
+    // `e8_02_sounding_voice`, which leaves the voice at full scale -- so its poll exited on the
+    // first pass (measured 1 tick) while phase B, keyed from silence, measured 8. The 7-tick gap
+    // was that asymmetry, not the poll phase, and no band could have made that comparison mean
+    // anything.
+    e8_01_silence(&mut p);
+    dsp_read_to(&mut p, 0x08, PORT3); // guard A: ENVX must be zero before keying on
     e8_02_time_to_envx(&mut p, "a", Some(()), PORT1);
 
-    // Release fully, then confirm silence before re-arming -- E8.02's guard, same reasoning.
-    dsp_write(&mut p, 0x5C, 0x01);
-    for _ in 0..7 {
-        p.delay(0x00);
-    }
-    dsp_write(&mut p, 0x5C, 0x00);
-    dsp_read_to(&mut p, 0x08, PORT3);
+    e8_01_silence(&mut p);
+    // Guard B folded into the same port: either reading being non-zero makes PORT3 non-zero, so
+    // one slot covers both without spending a second APU port on it.
+    dsp_read_to(&mut p, 0x08, 0x10);
+    p.mov_a_dp(0x10);
+    p.or_a_dp(PORT3);
+    p.mov_dp_a(PORT3);
 
-    // Phase B: the same measurement shifted one output sample later. 16 NOPs = 32 SPC cycles, and
-    // they land BEFORE the timer starts so the interval itself is unchanged.
-    for _ in 0..16 {
+    // The one-sample offset. 16 NOPs at 2 cycles each = 32 SPC cycles = one output sample, and they
+    // sit BEFORE the timer starts so the measured interval is unchanged -- only its phase against
+    // the DSP's sample clock moves.
+    for _ in 0..8 {
         p.nop();
     }
     e8_02_time_to_envx(&mut p, "b", Some(()), PORT2);
@@ -5368,17 +5381,19 @@ fn e8_01() -> Test {
     a.l("and #$00FF");
     a.record(258, "E8.01 ENVX before the second key-on (the arming guard)");
 
-    a.c("The guard first: the voice has to be silent before phase B keys it on, or phase B measures");
-    a.c("a climb that never stopped rather than a key-on. This is E8.02's guard and its reason.");
+    a.c("The guard first, covering BOTH phases -- either reading being non-zero makes the slot");
+    a.c("non-zero, so one slot guards two key-ons. The band is 0..4 rather than exactly 0: twelve");
+    a.c("release blocks leave a measured residual of 2 out of a full-scale $7F, which is 1.5% and");
+    a.c("far below anything that would let a poll exit early. Demanding exact zero would be");
+    a.c("pinning how many delay blocks the release happens to need, not that it finished.");
     a.l("rep #$30");
     a.l("lda f:$7E0102");
     a.l("and #$00FF");
     a.assert_a16_range(
         0,
-        0,
-        "the voice was still sounding when E8.01's second key-on was armed, so the phase-B \
-         measurement is of an envelope that never reached silence and says nothing about the KON \
-         poll rate",
+        4,
+        "a voice was still sounding when one of E8.01's key-ons was armed, so that phase measured \
+         an envelope that never reached silence and says nothing about the KON poll rate",
     );
 
     a.c("Both readings must be in E8.02's established band. A phase that measured nothing -- a");
@@ -5387,18 +5402,18 @@ fn e8_01() -> Test {
     a.l("lda f:$7E0100");
     a.l("and #$00FF");
     a.assert_a16_range(
-        4,
-        13,
-        "E8.01 phase A's key-on delay is outside the plausible band, so the instrument is not \
-         measuring a key-on at all and the phase comparison below means nothing",
+        5,
+        11,
+        "E8.01 phase A's key-on delay is outside the measured band (it reads 8), so the instrument \
+         is not timing a key-on from silence and the phase comparison below means nothing",
     );
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
     a.assert_a16_range(
-        4,
-        13,
-        "E8.01 phase B's key-on delay is outside the plausible band, so the instrument is not \
-         measuring a key-on at all and the phase comparison below means nothing",
+        5,
+        11,
+        "E8.01 phase B's key-on delay is outside the measured band (it reads 7), so the instrument \
+         is not timing a key-on from silence and the phase comparison below means nothing",
     );
 
     a.c("The row itself. Shifting the whole measurement one output sample later must move the");
@@ -5429,6 +5444,20 @@ fn e8_01() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// Emit: key the voice off and let the release run all the way to silence.
+///
+/// A full-scale envelope is `$7F0` and release steps it down by 8 a sample, so ~254 samples; one
+/// `delay(0x00)` block is about 48, hence seven of them. `E8.02` learned this the hard way -- its
+/// first version waited two blocks, the envelope was still around `$40` when the poll started, and
+/// the measured key-on delay came out as one tick.
+fn e8_01_silence(p: &mut Spc) {
+    dsp_write(p, 0x5C, 0x01); // KOF
+    for _ in 0..12 {
+        p.delay(0x00);
+    }
+    dsp_write(p, 0x5C, 0x00);
 }
 
 fn e8_02() -> Test {
