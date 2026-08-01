@@ -1382,6 +1382,36 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn the_short_line_is_exactly_the_frame_whose_213f_bit7_reads_one() {
+        // anomie states the rule as "scanline $f0 of every other frame (those with `$213f.7=1`)".
+        // The predicate keys on the same flag `$213F` bit 7 exposes, so this holds by construction
+        // -- which is precisely why it is worth pinning: a later refactor that switched to a frame
+        // parity counter could invert the phase and nothing else here would notice.
+        let mut p = Ppu::new();
+        assert!(!p.io.interlace);
+        let mut bus = NullVideoBus;
+        let mut checked = 0;
+        for _ in 0..4 {
+            // Run to V = 240 of this frame and compare the predicate against the register.
+            while !(p.v == 240 && p.h == 0) {
+                p.tick_dot(&mut bus);
+            }
+            let bit7_set = p.read_reg(0x213F) & 0x80 != 0;
+            assert_eq!(
+                p.is_short_scanline(),
+                bit7_set,
+                "the short line must be exactly the frames a cart sees as $213F.7 = 1"
+            );
+            checked += 1;
+            while p.v == 240 {
+                p.tick_dot(&mut bus);
+            }
+        }
+        assert_eq!(checked, 4);
+    }
+
     #[test]
     fn full_state_round_trips_through_save_state() {
         let mut p = Ppu::with_region(Region::Pal);

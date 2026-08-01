@@ -114,8 +114,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is reachable in progressive mode only because that flag toggles unconditionally, the correction
   that landed just before this.
 
-  **Nothing regressed:** the short line is inside vblank, and the full 858-test workspace suite,
-  every blessed scene and both `hdmaen_latch_test` goldens are unchanged. The long line (`B2.03`)
+  **One golden moved, and it is not yet blessed.** `hdmaen_latch_test`'s framebuffer hash changes
+  (`0xd518b7c9df2c9725` → `0x8f60351e0cdd8125`). An earlier draft of this entry claimed no golden
+  moved, on the strength of `cargo test --workspace` — that command does **not** run the golden
+  suite, which needs `--features test-roms` and otherwise self-skips entirely, so it never exercised
+  them. CI caught it.
+
+  The move is *plausible* rather than verified: the short line removes 4 master clocks at `V = 240`,
+  which shifts the CPU's phase against the PPU for the rest of that frame, and `hdmaen_latch_test`
+  is exactly a mid-line HDMAEN-vs-latch timing test. But an inverted field parity would move the
+  render too, and look the same. Per `docs/adr/0013` a golden is re-blessed **only** from a render
+  the references agree on, so it stays unblessed and this change is not mergeable until MesenCE can
+  arbitrate — the same oracle that is currently unresolved.
+
+  What *is* pinned meanwhile is the parity itself: the short line is exactly the frames a cart reads
+  as `$213F.7 = 1`, asserted against the register rather than against the private flag, which is the
+  form anomie states the rule in. The long line (`B2.03`)
   is deliberately **not** included — it has 341 dots, one more than a normal line, so it changes the
   H wrap rather than substituting a dot length, and is a separate change with a different risk
   profile. `docs/scheduler.md` and `docs/ppu.md` say so.
