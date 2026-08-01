@@ -651,9 +651,36 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 
 | row | assertion | why first |
 |---|---|---|
-| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; the errata flag means the reference is explicit, and a 1-sample granularity is measurable through ENDX/ENVX without new opcodes |
-| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged, so the expected behaviour is stated rather than inferred |
-| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | already has decoder scaffolding from the landed `E5` rows |
+| `E8.01` | KON/KOFF polled every **second** sample (16 kHz) `[ERRATA]` | pure DSP-register observable; errata-flagged so the reference is explicit |
+| `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
+| `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
+
+**`E8.01` design, worked out so the next session does not restart from the assertion text.** Follow
+`e8_02`'s shape (`apu.rs:5298`), which already solves the hard parts — `e8_02_sounding_voice` builds
+the voice, `e8_02_time_to_envx` counts timer-2 ticks to a non-zero `ENVX`, and `T2DIV = 2` gives
+**exactly one tick per output sample**.
+
+The assertion is a **differential**, not an absolute: write `KON` twice, the second offset by **one
+sample (32 SPC cycles)** from the first, and compare the two measured delays.
+
+- polled every **second** sample ⇒ the two delays differ by **1** (one write waits for the next
+  even poll, the other does not);
+- polled every sample ⇒ they are **equal**.
+
+So the row asserts *"the two differ"*, which `assert_a16_range` expresses fine — and note this is one
+of the cases the `never hand-write a verdict byte` rule exists for.
+
+Two traps carried over from `e8_02`, both already paid for once:
+- the voice must be **fully silent** before the second key-on. A full-scale envelope is `$7F0` and
+  release steps down 8/sample, so ~254 samples; `e8_02`'s first version polled while `ENVX` was still
+  `~$40` and measured a delay of one tick. Reuse its arming guard (`dsp_read_to(0x08, …)` must read
+  zero) rather than re-deriving it.
+- `T2DIV = 1` is finer but puts the reading at 15 of `TnOUT`'s 16 values, close enough to the wrap
+  that the NTSC/PAL drift gate caught it on the PAL image alone. Keep `T2DIV = 2`.
+
+**Verify by injection at the named site**: force the KON poll to every sample in
+`rustysnes-apu`'s DSP and confirm *this* row's code fires — per [[accuracysnes-attribution-trap]], a
+row that passes without moving under its own named injection is measuring something else.
 
 **Explicitly NOT first: `E1.11`** ("TSET1/TCLR1 read the target twice"). Inspected and set aside as a
 likely **vacuous** row: the second read is a dummy, and on a `$FD`-`$FF` timer-output target the
