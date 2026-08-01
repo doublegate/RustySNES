@@ -171,13 +171,26 @@ SNES9X_KNOWN_FAILURES=14
 # read at `R_DONE == $A5` and reproduced exactly across runs, both completing at frame 479. A count
 # alone would have hidden the composition, which is the whole point of enumerating them:
 #
-#   idx279  F1.03  code 2  | Group F input rows. mesen_crossval.lua makes exactly ONE emu.setInput
-#   idx286  F1.10  code 2  | call because in this build the port argument does not select a
+# **Key these on the ROW, not the index.** The catalogue index of a row moves whenever a test is
+# added ahead of it, and this comment has already gone stale once: it named `idx279 F1.03` and
+# `idx286 F1.10`, and in the current catalogue those indices are `F1.01` and `F1.08`. An index in a
+# comment is a fact with a shelf life; the row name is not. Map with SOURCE_CATALOG.tsv.
+#
+#   F1.03  code 2  | Group F input rows. mesen_crossval.lua makes exactly ONE emu.setInput
+#   F1.10  code 2  | call because in this build the port argument does not select a
 #                          | controller -- 0/1/2 all land on controller 1 -- so a second call for
 #                          | port 2 overwrites port 1 with a mask containing no Start and the cart
 #                          | never leaves its menu. The cost is that PAD2_CONTRACT-dependent rows
 #                          | cannot pass here. Covered by the in-repo harness and snes9x, which do
 #                          | drive both ports. See that script's comment for the full account.
+#
+# **`F1.10`'s attribution above is DOUBTED, and stated as doubted rather than quietly fixed.**
+# `f1_require_contract` reads `$4016` only — port 1 — so `F1.10` does not depend on `PAD2_CONTRACT`
+# at all, and its code 2 means "$4212 read busy at the very start of the vblank line", which has
+# nothing to do with which controllers are held. The snes9x block above independently says Mesen2
+# *passes* `F1.10`. Both cannot be right. Resolving it needs Mesen2's failing SET read at `DONE` and
+# mapped through SOURCE_CATALOG.tsv, which is a measurement nobody has taken since the catalogue
+# grew; until then treat the count (2) as trustworthy and this row attribution as not.
 #
 #   E8.01 used to be a third entry here, and is not any more. Its two rejected drafts asserted
 #   something a phase the cart cannot control got to decide -- the delay from a KON write to the

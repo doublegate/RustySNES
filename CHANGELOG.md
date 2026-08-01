@@ -24,11 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status `$01`), so with RustySNES and snes9x it is **3 against 1 with Mesen2 the outlier**, and the
   row comes off the "unexplained, needs a fourth opinion" list it has been on since the oracle fix.
 
-  **Five rows where ares disagrees with the cart** — `C7.05`, `C7.10`, `E8.02`, `E3.06`, `F1.10` —
-  are recorded and **not** adjudicated. `F1.10` is suspect-of-the-host first: it is a
-  `PAD2_CONTRACT` row and this host's port detection is assumed rather than verified. Not wired into
-  `crossval.sh` for that reason — an `ARES_KNOWN_FAILURES` constant encoding unexamined
-  disagreements would be worse than no third reference.
+  **Five rows where ares disagrees with the cart** — and **three of them are rows snes9x already
+  fails**, which the tally alone does not show. `C7.10` and `F1.10` become **2-vs-2** (RustySNES +
+  Mesen2 against snes9x + ares); `C7.05` is 2-vs-2 with the two dissenters failing on *different*
+  codes; only `E8.02` and `E3.06` are ares-only. So ares is corroborating snes9x more than it is
+  standing alone. Not wired into `crossval.sh` — an `ARES_KNOWN_FAILURES` constant encoding
+  unadjudicated disagreements would be worse than no third reference.
+
+  **`F1.10` deserves a hard look.** fullsnes puts the automatic read's start ~dot 32.5-95.5 into the
+  first vblank line rather than at the vblank edge. snes9x fails that row, ares fails it, and
+  `crossval.sh` records Mesen2 failing it too — which would leave **RustySNES passing alone**, on a
+  row it passes only because of a deliberate fix. The standing heuristic says RustySNES failing
+  alone means a real bug; it should say the same about RustySNES *passing* alone.
 
   Three setup steps turned out to be mandatory and each cost a round, because all three fail as the
   *same* segfault inside `System::load` with a backtrace pointing at memory setup rather than at
@@ -803,6 +810,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expansion-audio levels are. Looking for it surfaced a real and larger gap instead.
 
 ### Changed
+
+- **`crossval.sh`'s Mesen2 known-failure comment is keyed on rows, not catalogue indices, and one of
+  its attributions is flagged as doubtful.** The comment named `idx279 F1.03` and `idx286 F1.10`; in
+  the current catalogue those indices are `F1.01` and `F1.08`, because an index moves whenever a test
+  is added ahead of it. An index in a comment is a fact with a shelf life.
+
+  Separately, that comment attributes Mesen2's `F1.10` failure to the port-2 limitation, and
+  `f1_require_contract` reads `$4016` only — port 1 — while `F1.10` code 2 means "`$4212` read busy
+  at the very start of the vblank line", which does not involve controller state. The snes9x block a
+  few lines above independently says Mesen2 *passes* `F1.10`. Both cannot be true. Marked as doubted
+  rather than quietly rewritten: resolving it needs Mesen2's failing set read at `DONE` and mapped
+  through `SOURCE_CATALOG.tsv`, a measurement nobody has taken since the catalogue grew.
 
 - **AccuracySNES: `E9.01` and `E9.02` stand down as SKIP on a menu restart.** `E9.02` steps the noise
   LFSR by design and nothing can put it back: `FLG` bit 7 is the DSP's *soft* reset and does not
