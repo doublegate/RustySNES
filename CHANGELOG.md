@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CORRECTION: the battery covers 351 of 443 assertions, not 350.** The `E5.06` entry below says
+  coverage was "350 either way"; the regenerated `docs/accuracysnes-coverage.md` reads **297 on-cart
+  + 54 scene-only = 351**. `docs/STATUS.md` and `docs/accuracysnes-plan.md` are synced to the
+  generated figure, along with three other hand-maintained lines that had drifted behind this
+  cycle's work: the reference list (now **Mesen2, snes9x and ares**, with MesenCE named separately as
+  the compositor blueprint rather than as a cross-validation reference), Mesen2's known-failure
+  rationale (`F1.03` alone, and *why* — it clocks both ports out of one latch), and the scene tally
+  (54, on both scene hosts). The generated report is the authority precisely because these drift;
+  this is the periodic reconciliation, not a coverage change.
+
 ### Added
 
 - **`E3.06` rewritten to poll and accumulate — and ares agrees with it exactly.** The row read

@@ -14,13 +14,14 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **338** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Assertion coverage | **350 of 443** dossier assertions — **297 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
-| Rendered scenes | **54** declared and all cross-validated (`docs/adr/0013`); **53** are the dossier rows they are the only cover for |
+| Assertion coverage | **351 of 443** dossier assertions — **297 on-cart** + **54 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
+| Rendered scenes | **54** declared, all blessed and matching on both scene hosts (`docs/adr/0013`); **54** dossier rows have a scene as their only cover |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
-| Cross-validated | RustySNES and Mesen2 agree on every test but two `PAD2_CONTRACT` rows the Lua runner cannot drive; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
+| Cross-validated | **Three references** as of `v1.29.0`. Mesen2 agrees on every test but `F1.03`, which clocks both ports out of one latch and so needs the port-2 input its Lua runner cannot drive; snes9x has 14 recorded divergences and **ares** 4, each with a citation in `scripts/accuracysnes/crossval.sh`. A headless **MesenCE** is separately the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
 | On-cart UI | AccuracyCoin-style paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer (`v1.21.0`) |
 | Defects found in this emulator | **12+** — see §5 |
+| Defects found in a *reference* emulator | **1** — ares' `$F1` handler negates the timer-2 counter reset (`scripts/accuracysnes/ares_host/README.md`) |
 
 These counts are maintained by hand and will drift. **`docs/accuracysnes-coverage.md` is the
 authority**: it is regenerated with the ROM, so it cannot.
@@ -742,10 +743,12 @@ Chosen 2026-08-01, now that both halves of the Mesen2 oracle arbitrate. Two corr
 | `E9.02` | noise output is **highpass-filtered** `[ERRATA]` | DSP-observable via OUTX on a NON voice; errata-flagged |
 | `E5.06` | BRR 15-bit wrap: clamp to 16 bits, then `+4000h..+7FFFh → -4000h..-1` | reuses the landed `E5` decoder scaffolding |
 
-**All three landed 2026-08-01.** Battery 338 tests, 100% on-cart, and both references agree:
-`snes9x: OK (14 known divergence(s))`, `Mesen2: OK (2 known divergence(s))`, 53/53 scenes on each.
-`MESEN2_KNOWN_FAILURES` came **down** from 3 to 2 in the process, because the redesign below removed
-the one Mesen2 divergence that was ours rather than the harness's.
+**All three landed 2026-08-01.** Battery 338 tests, 100% on-cart, and the references agree:
+`snes9x: OK (14 known)`, `Mesen2: OK (1 known)`, `ares: OK (4 known)`, 54/54 scenes on each scene
+host. `MESEN2_KNOWN_FAILURES` came **down** from 3, first to 2 because the redesign below removed the
+one Mesen2 divergence that was ours rather than the harness's, and then to 1 when `F1.10`'s Mesen2
+verdict proved phase-fragile (it flipped to passing when an unrelated `E3.06` rewrite moved the
+cart's execution phase) and was retracted rather than re-recorded.
 
 ### `E8.01` — two rejected drafts, and what they were really measuring
 
@@ -2337,8 +2340,8 @@ exists.
   stay in their own tier. `crossval.sh` gates on them, and per rule 4 a golden is committed only
   once the references agree.
 
-  **Status: 53 scenes blessed** (the regenerated `docs/accuracysnes-coverage.md` is authoritative — this
-  hand-maintained figure had drifted from an earlier "41"), covering the scene tier across `C4`-`C8`,
+  **Status: 54 scenes blessed** (the regenerated `docs/accuracysnes-coverage.md` is authoritative — this
+  hand-maintained figure had drifted from an earlier "41", and again from "53"), covering the scene tier across `C4`-`C8`,
   `C10`, `C11` and `C12`. The
   first three disagreed with the references on first run, and in all three cases RustySNES was
   wrong: the BG vertical fetch was a line late, and mosaic quantised the BG row instead of the
