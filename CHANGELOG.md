@@ -41,6 +41,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now needs the same layout twice. `rustysnes-core`'s scheduler delegates to it rather than keeping
   a second copy.
 
+- **AccuracySNES: the scene protocol publishes on a known field.** `run_scenes` now sets the scene
+  ID only on frames whose `$213F` bit 7 is set, so every sighting the host counts is the same
+  *cart-side* field. `SCENE_FRAMES` grew 8 → 12: at half the publication rate the old value put the
+  host's fourth sighting on the window's *last* frame, one of the two ends the capture protocol
+  exists to avoid. The 53 blessed scenes are unaffected on all three hosts — a still picture hashes
+  the same on either field.
+
+  **RETRACTION.** This entry first claimed the gate had turned `C7.12`'s three-way emulator split
+  into a two-way one, citing snes9x and Mesen2 producing the identical hash. **That was one run, and
+  it does not hold.** Running the *identical ROM* twice under Mesen2 gives `0x16f7ab8c7f97b7f8` then
+  `0x266241e43ab85064` — exactly the two field-parity outcomes, alternating run to run. RustySNES and
+  snes9x are each stable; Mesen2 is not.
+
+  **The gate is necessary but not sufficient, and the missing half is host-side.** The cart is
+  deterministic: it publishes only on its chosen field. What is not pinned is which *rendered frame*
+  a host associates with the `R_SCENE` value it read — Mesen2's headless runner does not make that
+  association deterministically. The interlace scene was therefore **withdrawn**, not left
+  unblessed: a scene reporting a different hash each run is noise in the gate output. The gate stays
+  — it is the cart-side half, it moves no golden, and it costs only battery runtime — but nothing
+  exploits it until a host can pin the frame it hashes. `C9.03`/`C9.06` are not written on top of
+  it for the same reason.
+
+  The lesson is `E8.01`'s, again: a result that depends on a phase nobody controls looks stable
+  until you run it twice.
+
+- **AccuracySNES: `C11.03` covered — each `M7x * ORG` product is masked to a multiple of 64 before
+  accumulation.** A new Mode 7 scene with `M7A` and `M7B` both `$0101`, deliberately not round
+  numbers: with `M7B = $0101` the discarded part is `line MOD 64`, a different amount on every line,
+  so a core that accumulates the full products samples a different texel on roughly a quarter of the
+  columns of most lines. Every other Mode 7 scene uses round matrix values, which hide this
+  completely — none of them was evidence for the row.
+
+  **The coverage total does not move**, and the regenerated report is why: `C11.03` replaces `C7.12`
+  one-for-one, because the withdrawn interlace scene was being counted as scene-cover for `C7.12`
+  while it was still unblessed. 350 of 443 either way — what changed is that the row now counted is
+  one whose golden all three references agree on.
+
+  Blessed at `0xc032679c9076440a`, which **all three** references produce, and non-vacuity confirmed
+  by removing the mask from `fetch_mode7_column`: this scene's hash moves. Worth recording that two
+  existing scenes (`c11-mode7-rotate-scale`, `c11-mode7-window`) also move under that injection, so
+  the mask was already witnessed in aggregate — what this adds is a scene whose stated purpose is
+  the mask, which is what makes the coverage claim mean something.
+
+- **The H-IRQ comparator moves into the clock domain (`T-06-A`), and nothing below the long dots
+  moves with it.** `HIRQ_TRIGGER_DELAY = 4` was a *dot-domain rounding* of ares'
+  `hcounter(10) == (HTIME+1)<<2` — exact only while every dot is four clocks, which stopped being
+  true when dots 323 and 327 became six. The match is now computed where it actually happens:
+  clock `4·HTIME + 14` (`hirq_match_clock`), mapped to the first dot boundary at or after it
+  (`hirq_trigger_dot`).
+
+  **Below the long dots the two agree exactly**, because `4·HTIME + 14` is never a multiple of 4 and
+  the next boundary is `HTIME + 4`. They diverge only for `HTIME` **321..=337**, where the six-clock
+  dots have displaced every later boundary — the old constant fired up to a whole dot late, and at
+  `HTIME = 336` suppressed an IRQ that does fire. `HTIME = 337` lands on dot 340's boundary, which
+  exists only on the long line, so it is honoured there and suppressed elsewhere.
+
+  This is the change the plan recorded as *"attempted and reverted because it moves
+  `hdmaen_latch_test_2`'s golden"*. It does not, this time: **no framebuffer golden moved**, the
+  undisbeliever suite passes unchanged, and cross-validation is byte-identical
+  (`snes9x: OK (14 known)`, `Mesen2: OK (2 known)`).
+
+  **`B4.16` is a weaker guard than its own doc claimed, and that is worth knowing.** Measured either
+  side of the change, *both* of its readings are unchanged — including the `HTIME = 330` one, whose
+  trigger dot moved 334 → 333. The CPU takes an IRQ at an instruction boundary, so the handler-entry
+  dot quantises to the spin loop's instruction length and a one-dot shift is absorbed. `B4.16` can
+  say "nothing regressed"; it cannot say "the change took effect". A unit test does that, sweeping
+  every `HTIME` and asserting equality with the old constant below the long dots and strict
+  inequality above them.
+
+  `LONG_DOTS` and the per-dot clock count also move to `rustysnes-ppu`, which owns the dot model and
+  now needs the same layout twice. `rustysnes-core`'s scheduler delegates to it rather than keeping
+  a second copy.
+
 - **AccuracySNES: the scene protocol publishes on a known field, and the interlace three-way split
   is down to a two-way one.** `run_scenes` now sets the scene ID only on frames whose `$213F` bit 7
   is set, so every sighting the host counts is the same field. `SCENE_FRAMES` grew 8 → 12: at half

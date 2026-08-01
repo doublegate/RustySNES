@@ -15,7 +15,7 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 |---|---|
 | Tests | **338** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
 | Assertion coverage | **350 of 443** dossier assertions — **297 on-cart** + **53 rendered scenes**, kept as separate columns (`docs/accuracysnes-coverage.md`) |
-| Rendered scenes | **53**, all cross-validated (`docs/adr/0013`) |
+| Rendered scenes | **54** declared and all cross-validated (`docs/adr/0013`); **53** are the dossier rows they are the only cover for |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | RustySNES and Mesen2 agree on every test but two `PAD2_CONTRACT` rows the Lua runner cannot drive; snes9x agrees on every test but a handful of recorded reference bugs with citations in `scripts/accuracysnes/crossval.sh`; a headless **MesenCE** (this cycle) is the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
@@ -430,39 +430,44 @@ Any `C9`/`C7.12` interlace assertion needs the cart to publish a scene only on a
 a change to `run_scenes`, not to a scene. Worth doing: it unblocks the interlace half of `C9`
 (`C9.03`, `C9.06`) as well as `C7.12`.
 
-**BUILT 2026-08-01, and it did what it was supposed to — but the scene is still unblessable.**
+**BUILT 2026-08-01 — and then measured properly, which changed the conclusion.**
 `run_scenes` now publishes the scene ID only on frames whose `$213F` bit 7 is set, so every sighting
-the host counts is the same field (`SCENE_FRAMES` grew 8 → 12, because at half the publication rate
-the old value put the host's fourth sighting on the window's last frame — one of the two ends the
-protocol exists to avoid). The 53 blessed scenes are untouched by it on all three hosts: a still
-picture hashes the same on either field.
+the host counts is the same *cart-side* field (`SCENE_FRAMES` grew 8 → 12, because at half the
+publication rate the old value put the host's fourth sighting on the window's last frame — one of
+the two ends the protocol exists to avoid). The 53 blessed scenes are untouched by it on all three
+hosts: a still picture hashes the same on either field.
 
-On the interlace scene it worked exactly as intended. The **three**-way split became a **two**-way
-one, and snes9x and Mesen2 now produce the *identical* hash:
+**The first reading of the result was wrong, and it was wrong because it was a single run.** An OBJ
+interlace scene was added, the three-way hash split became a two-way one — snes9x and Mesen2
+produced the *identical* `0x266241e43ab85064` — and that was published as "the gate works". It does
+not hold. Running the **identical ROM** twice under Mesen2 gives:
 
-| | `c7-obj-interlace-halves-height` |
+| run | `c7-obj-interlace-halves-height` under Mesen2 |
 |---|---|
-| snes9x | `0x266241e43ab85064` |
-| Mesen2 | `0x266241e43ab85064` |
-| RustySNES | `0x16f7ab8c7f97b7f8` |
+| 1 | `0x16f7ab8c7f97b7f8` |
+| 2 | `0x266241e43ab85064` |
 
-**And the residual is fully characterised**, which is the part worth keeping. Dumping the pixels
-shows both renders agree on everything the row is *about* — the 16x32 sprite occupies 16 display
-rows, its 32x64 neighbour 32 — and differ only in **which field's source rows** are drawn:
-snes9x/Mesen2 draw the even ones, RustySNES the odd ones. One source row, nothing else.
+Those are exactly the two field-parity outcomes, and Mesen2 alternates between them **run to run on
+one build**. RustySNES and snes9x are each stable; Mesen2 is not.
 
-**Not blessed, and not called a RustySNES bug either.** "RustySNES alone" is this project's
-signature for a real defect, but RustySNES is not alone here: its `row + field` and its
-`ppu2.mdr.bit(7) = field()` are both ares' (`sfc/ppu/object.cpp:122`, `sfc/ppu/io.cpp:178`), and both
-cores toggle the field at the same V wrap. So this is the bsnes/ares lineage against snes9x and
-Mesen2 — **2 vs 1** by this project's own provenance rule, not 2 vs 2, and no primary source says
-which field maps to which rows. Recorded as a variant set per the same rule the Mode-5 hi-res
-cluster is under: *do not pick a winner*. The tiebreaker is ares actually running the cart, which is
-the same blocked item `A2.10` is waiting on.
+**So the gate is necessary but NOT sufficient, and the missing half is host-side.** The cart's own
+behaviour is deterministic — it publishes only on its chosen field. What is not pinned is which
+*rendered frame* a host associates with the `R_SCENE` value it read: if the host's frame boundary
+sits a frame away from the cart's vblank, it hashes frame N while the cart published on frame N−1's
+field. Mesen2's headless runner does not make that association deterministically.
+
+**The scene was therefore withdrawn**, not merely left unblessed: a scene that reports a different
+hash on each run is noise in the gate output, and its "the references agree" reading was an artifact
+of looking once. The gate itself is kept — it is the cart-side half of the fix, it costs only
+battery runtime, and it moves no golden — but nothing exploits it until a host can pin the frame it
+hashes.
+
+**The lesson, and it is the same one `E8.01` taught in the same session:** a result that depends on a
+phase nobody controls looks stable until you run it twice. Run an interlace or field-dependent
+capture **at least twice per host** before believing any part of it.
 
 `C9.03`/`C9.06` are deliberately NOT written on top of this. Screen interlace has the identical
-parity dependency, so they would land unblessed for the identical reason — two more unblessable
-scenes is not progress. Write them when the tiebreaker exists.
+parity dependency, so they would land in the identical state. Write them when the tiebreaker exists.
 
 ### `E8.03` — "clears `ENDX` even when suppressed" does not mean suppressed by `KOFF`
 

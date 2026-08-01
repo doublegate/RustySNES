@@ -2247,55 +2247,38 @@ SCENES_IMPL = 1
     rts
 .endproc
 
-; c7-obj-interlace-halves-height — C7.12
-; `c7-objsel-size-6` with OBJ interlace on (SETINI bit 1) and NOTHING else changed. Under interlace a sprite's displayed line maps to twice its internal row, so the 16x32 small member and the 32x64 large one each occupy half the vertical space they otherwise would — a core that ignores SETINI bit 1 renders this scene identically to its twin, which is exactly the comparison the pair exists to make. THIS SCENE IS FIELD-DEPENDENT: interlace selects even or odd sprite rows by field parity, which is why `run_scenes` gates the published window on the field flag. It was written once WITHOUT that gate and produced three different hashes on three emulators, the only three-way split any scene has produced.
-.proc scene_c7_obj_interlace_halves_height
+; c11-mode7-product-low-bits-masked — C11.03
+; Mode 7 with `M7A` and `M7B` both `$0101` — deliberately NOT round numbers. Each                `M7x * ORG` product has its low six bits masked off (`AND NOT $3F`) before the terms                are accumulated, so the per-line origin is quantised to a multiple of 64 in the                1/256-texel fixed point. With `M7B = $0101` the discarded part is `line MOD 64`,                which is a different amount on every line — a core that accumulates the full                products samples a different texel on roughly a quarter of the columns of most                lines, and the two pictures are nothing alike. Round matrix values hide this                completely, which is why every other Mode 7 scene here uses them and none of them                is evidence for this row.
+.proc scene_c11_mode7_product_low_bits_masked
     .a16
     .i16
     sep #$20
     .a8
-    stz $2105         ; BGMODE 0
-    jsr scene_oam_reset
+    lda #$07
+    sta $2105         ; BGMODE 7
+    jsr scene_mode7_vram
     sep #$20
     .a8
-    lda #$C0
-    sta $2101         ; OBJSEL pair 6, name base word $0000 — same as the twin
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-    stx $2102
-    sep #$20
-    .a8
-    lda #40
-    sta $2104         ; sprite 0 X
-    lda #60
-    sta $2104         ; sprite 0 Y
-    lda #$10
-    sta $2104         ; tile $10 — printable at 4bpp
-    lda #$30
-    sta $2104         ; attr: palette 0, priority 3
-    lda #120
-    sta $2104         ; sprite 1 X
-    lda #60
-    sta $2104         ; sprite 1 Y
-    lda #$10
-    sta $2104
-    lda #$30
-    sta $2104
-    rep #$30
-    .a16
-    .i16
-    ldx #$0100
-    stx $2102         ; the high table
-    sep #$20
-    .a8
-    lda #$08
-    sta $2104         ; sprite 0 small (16x32), sprite 1 large (32x64)
-    lda #$02
-    sta $2133         ; SETINI bit 1: OBJ interlace — the ONE difference from the twin
-    lda #$10
-    sta $212C
+    stz $211A         ; M7SEL: no repeat, no flips
+    lda #$01
+    sta $211B
+    sta $211B         ; M7A = $0101 — the low byte is what makes the mask observable
+    sta $211C
+    sta $211C         ; M7B = $0101, so the discarded part is line MOD 64
+    stz $211D
+    stz $211D         ; M7C = 0
+    stz $211E
+    sta $211E         ; M7D = $0100
+    stz $211F
+    stz $211F         ; M7X = 0
+    stz $2120
+    stz $2120         ; M7Y = 0
+    stz $210D
+    stz $210D         ; M7HOFS = 0
+    stz $210E
+    stz $210E         ; M7VOFS = 0
+    lda #$01
+    sta $212C         ; BG1 on the main screen
     lda #$0F
     sta $2100
     rep #$30
@@ -2363,4 +2346,4 @@ _scene_entries:
     .addr scene_c7_hflip_sliver_order
     .addr scene_c8_force_black_outside_window
     .addr scene_c5_4bpp_bitplane_order
-    .addr scene_c7_obj_interlace_halves_height
+    .addr scene_c11_mode7_product_low_bits_masked
