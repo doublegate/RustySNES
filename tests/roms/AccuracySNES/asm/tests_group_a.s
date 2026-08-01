@@ -21332,7 +21332,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #433
+    lda #424
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -33373,28 +33373,27 @@ apu_prog_98:
     .byte $00, $C4, $F3, $E8, $07, $C4, $F2, $E8, $7F, $C4, $F3, $E8
     .byte $05, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8
     .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $8D, $20, $FE, $FE, $8F, $02, $FC, $E8, $5C
+    .byte $00, $C4, $F3, $8D, $20, $FE, $FE, $E8, $5C, $C4, $F2, $E8
+    .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $08, $C4, $F2, $E4, $F3, $C4, $F7, $8F, $00, $11, $E8, $4C
+    .byte $C4, $F2, $E8, $01, $C4, $F3, $AB, $11, $E8, $08, $C4, $F2
+    .byte $E4, $F3, $68, $00, $F0, $F4, $E4, $11, $C4, $F5, $E8, $5C
     .byte $C4, $F2, $E8, $01, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00
     .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
     .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
     .byte $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00
     .byte $FE, $FE, $8D, $00, $FE, $FE, $E8, $5C, $C4, $F2, $E8, $00
-    .byte $C4, $F3, $E8, $08, $C4, $F2, $E4, $F3, $C4, $F7, $E4, $FF
-    .byte $8F, $84, $F1, $E8, $4C, $C4, $F2, $E8, $01, $C4, $F3, $E8
-    .byte $08, $C4, $F2, $E4, $F3, $68, $00, $F0, $F6, $8F, $80, $F1
-    .byte $E4, $FF, $C4, $F5, $E8, $5C, $C4, $F2, $E8, $01, $C4, $F3
-    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
-    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
-    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
-    .byte $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE
-    .byte $E8, $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $08, $C4, $F2
-    .byte $E4, $F3, $C4, $10, $E4, $10, $04, $F7, $C4, $F7, $00, $00
-    .byte $00, $00, $00, $00, $00, $00, $E4, $FF, $8F, $84, $F1, $E8
-    .byte $4C, $C4, $F2, $E8, $01, $C4, $F3, $E8, $08, $C4, $F2, $E4
-    .byte $F3, $68, $00, $F0, $F6, $8F, $80, $F1, $E4, $FF, $C4, $F6
-    .byte $E8, $4C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5A, $C4, $F4
-    .byte $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0
-    .byte $FF
+    .byte $C4, $F3, $E8, $08, $C4, $F2, $E4, $F3, $C4, $10, $E4, $10
+    .byte $04, $F7, $C4, $F7, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $8F, $00, $11, $E8, $4C, $C4, $F2, $E8, $01, $C4, $F3, $AB
+    .byte $11, $E8, $08, $C4, $F2, $E4, $F3, $68, $00, $F0, $F4, $E4
+    .byte $11, $C4, $F6, $E8, $4C, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
+    .byte $F1, $5F, $C0, $FF
 apu_prog_99:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01

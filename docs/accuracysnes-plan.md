@@ -763,6 +763,31 @@ own period is well under one sample; and with the timer gone, `PORT3` is freed f
 sibling duty, so the four measurements a proper phase sweep wants can be reported without a second
 upload.
 
+**Poll-count instrument implemented; resolution improved, asymmetry NOT resolved.**
+`e8_01_poll_count` replaces the timer with a counted poll loop (`inc_dp` per pass), as prescribed
+above. Measured on Mesen2, reading at `DONE`:
+
+| image | phase A | phase B | diff |
+|---|---|---|---|
+| NTSC | 14 | 12 | **2** |
+| PAL | 13 | 13 | **0** |
+
+Two things follow. The instrument itself is **better** — counts land at 12-14 passes where the timer
+gave 5-11 ticks, so a sub-sample shift now moves the reading by ~2 units instead of 0-or-1, and it no
+longer quantises to the sample clock. But **the region asymmetry survives**: NTSC moves, PAL does
+not, on the same emulator. So the timer was *a* confound, not *the* confound.
+
+The bands (`5..11`) are now stale — they were sized for timer ticks — which is why both images fail
+code 2 rather than code 4. Do not just re-band: the asymmetry is the open question, and a band that
+makes NTSC and PAL both pass would hide it.
+
+**What the remaining asymmetry probably means.** With the sample-clock quantisation gone, a
+difference that still depends on the region implies the thing being shifted is not only `KON`'s phase
+against the DSP poll — something region-dependent is moving the cart's own starting phase between the
+two images. The next probe should record phase A alone across both images with **no** offset applied:
+if A already differs by region (14 vs 13 here suggests it does), the row's premise needs the
+measurement anchored to a known DSP phase before any offset is applied, not merely a finer counter.
+
 **The fourth opinion was attempted and is blocked by a specific, checkable obstacle.**
 `ref-proj/bsnes/bsnes/out/bsnes_libretro.so` is built, and `libretro_crossval.c` takes any core as
 `argv[1]` — but the host exits 255 with *"core exposes no usable SYSTEM_RAM (0 bytes, need 131072)"*.

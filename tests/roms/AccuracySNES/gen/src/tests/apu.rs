@@ -5338,7 +5338,6 @@ fn e5_10() -> Test {
 /// sample, so ~254 samples — which the `ENVX == 0` guard enforces rather than assumes.
 fn e8_01() -> Test {
     let mut p = e8_02_sounding_voice();
-    p.mov_dp_imm(0xFC, 0x02); // T2DIV = 2: one tick per output sample
 
     // BOTH phases must start from silence. The first draft keyed phase A straight off
     // `e8_02_sounding_voice`, which leaves the voice at full scale -- so its poll exited on the
@@ -5347,7 +5346,7 @@ fn e8_01() -> Test {
     // anything.
     e8_01_silence(&mut p);
     dsp_read_to(&mut p, 0x08, PORT3); // guard A: ENVX must be zero before keying on
-    e8_02_time_to_envx(&mut p, "a", Some(()), PORT1);
+    e8_01_poll_count(&mut p, PORT1);
 
     e8_01_silence(&mut p);
     // Guard B folded into the same port: either reading being non-zero makes PORT3 non-zero, so
@@ -5363,7 +5362,7 @@ fn e8_01() -> Test {
     for _ in 0..8 {
         p.nop();
     }
-    e8_02_time_to_envx(&mut p, "b", Some(()), PORT2);
+    e8_01_poll_count(&mut p, PORT2);
 
     dsp_write(&mut p, 0x4C, 0x00);
     p.mov_a_imm(DONE).mov_dp_a(PORT0).release_to_ipl();
@@ -5444,6 +5443,30 @@ fn e8_01() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// Emit: count poll-loop iterations until `ENVX` reads non-zero, keying the voice on first.
+///
+/// **Not the timer.** `e8_02_time_to_envx` counts timer-2 ticks, and at `T2DIV = 2` one tick *is*
+/// one output sample — so any offset that is a whole number of samples shifts the tick boundary and
+/// the `KON` write together and cancels exactly, while a sub-sample offset only shows up when it
+/// happens to cross a poll boundary. That is what made the first `E8.01` flip between the NTSC and
+/// PAL images on one emulator: it was reporting a timing phase, not a poll rate.
+///
+/// Counting loop iterations instead drops the resolution from a whole sample (32 SPC cycles) to one
+/// pass of this loop, and the counter does not quantise to the sample clock at all — so a sub-sample
+/// shift moves it directly rather than conditionally. Same instrument change that rescued `F1.09`,
+/// which was vacuous at line granularity and worked once it counted polls.
+fn e8_01_poll_count(p: &mut Spc, port: u8) {
+    p.mov_dp_imm(0x11, 0x00);
+    dsp_write(p, 0x4C, 0x01); // KON
+    let poll = p.here();
+    p.inc_dp(0x11);
+    p.mov_a_imm(0x08).mov_dp_a(0xF2);
+    p.mov_a_dp(0xF3);
+    p.cmp_a_imm(0x00);
+    p.beq_back(poll);
+    p.mov_a_dp(0x11).mov_dp_a(port);
 }
 
 /// Emit: key the voice off and let the release run all the way to silence.
