@@ -8072,14 +8072,37 @@ fn e3_06() -> Test {
         .mov_sp_x()
         .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
         .mov_dp_imm(0xFC, 0x01) // T2DIV = 1
+        .mov_dp_imm(0x10, 0x00) // accumulated timer-2 ticks
+        .mov_dp_imm(0x11, 0x00) // poll counter
         .mov_a_dp(0xFD) // drain both counters so the interval starts from zero
         .mov_a_dp(0xFF)
-        .mov_dp_imm(0xF1, 0x85) // enable timers 0 and 2 together; bit 7 keeps the IPL mapped
-        .delay(0x18) // 24 iterations: long enough for T2 to count, short enough not to wrap
-        .mov_dp_imm(0xF1, 0x80) // and stop them together
-        .mov_a_dp(0xFD)
+        .mov_dp_imm(0xF1, 0x85); // enable timers 0 and 2 together; bit 7 keeps the IPL mapped
+
+    // POLL timer 2 rather than reading it once at the end. `TnOUT` is a FOUR-BIT read-and-clear
+    // counter, so a single read at the end of any interval long enough for timer 0 to tick can only
+    // report 0-15 -- and one timer-0 period IS eight timer-2 periods, so the useful range is 8..15
+    // and the wrap sits one tick above it. That is not a band that can be widened; it is the
+    // instrument's ceiling. ares read 0 here where RustySNES read 10, and the row could not tell
+    // "timer 2 wrapped" from "timer 2 is not running at 64 kHz".
+    //
+    // Each pass is ~32 SPC cycles and timer 2 ticks every 32, so every read returns 0, 1 or 2 and
+    // the running sum cannot lose a tick however long the interval gets.
+    let poll = prog.here();
+    prog.mov_a_dp(0xFF) // T2OUT, read-and-clear
+        .mov_dp_a(0x12)
+        .mov_a_dp(0x10)
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x10)
+        .inc_dp(0x11)
+        .mov_a_dp(0x11)
+        .cmp_a_imm(0x18); // 24 passes: enough for timer 0 to tick two or three times
+    prog.bne_back(poll);
+
+    prog.mov_dp_imm(0xF1, 0x80) // stop them together
+        .mov_a_dp(0xFD) // timer 0, read once -- a handful of ticks, nowhere near its own wrap
         .mov_dp_a(PORT2)
-        .mov_a_dp(0xFF)
+        .mov_a_dp(0x10)
         .mov_dp_a(PORT3)
         .mov_a_imm(DONE)
         .mov_dp_a(PORT0)
@@ -8087,11 +8110,6 @@ fn e3_06() -> Test {
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
-    a.c("Record both counts before asserting on either. `TnOUT` is FOUR BITS, so timer 2's band");
-    a.c("below ends one tick short of its wrap -- and a core whose SMP runs slightly fast crosses");
-    a.c("it and reads a small number, which is indistinguishable from 'timer 2 is not running at");
-    a.c("64 kHz' unless the raw counts are kept. ares fails this row, and without these the failure");
-    a.c("cannot be told from a real divergence.");
     a.l("rep #$30");
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
@@ -8100,34 +8118,44 @@ fn e3_06() -> Test {
     a.l("and #$00FF");
     a.record(
         267,
-        "E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)",
+        "E3.06 timer 2 ticks, ACCUMULATED across polls (no 4-bit ceiling)",
     );
 
-    a.c("Timer 0 first: one tick, maybe two. Zero would make the ratio below unmeasurable.");
+    a.c("Timer 0 first: the interval has to contain a couple of its ticks for a ratio to exist.");
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
     a.assert_a16_range(
         1,
-        3,
-        "timer 0 did not tick once over this interval, or ticked more than three times — either \
-         way the interval is not the one this test needs and the ratio below means nothing",
+        6,
+        "timer 0 did not tick over this interval, or ticked far more than the poll loop allows for \
+         — either way the interval is not the one this test needs and the ratio below means nothing",
     );
+
+    a.c("The row, as a RATIO rather than two absolute counts. Asserting absolute numbers pins the");
+    a.c("poll loop's own cycle cost, which differs between cores for reasons that have nothing to");
     a.c(
-        "Timer 2 over the SAME interval: eight times the rate, so eight or more ticks. The band is",
+        "do with the 64 kHz stage -- that is what made the previous version fail on ares while its",
     );
-    a.c("8..15 and `TnOUT` wraps at 16, which leaves NO headroom above -- and that is structural,");
-    a.c("not a choice: timer 0 must tick at least once for the ratio to mean anything, and one");
-    a.c("timer-0 period IS eight timer-2 periods, so timer 2 can never be below 8 and the wrap is");
-    a.c("only a factor of two away. Measured: RustySNES 10, ares 0 -- and 0 is what 16 reads as.");
+    a.c("`Timer<128>/Timer<128>/Timer<16>` declarations were an exactly correct 8:1.");
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.l("asl a");
+    a.l("asl a");
+    a.l("asl a             ; timer 0 ticks x 8 = what timer 2 should have counted");
+    a.l("sta f:$7E01F0");
     a.l("lda f:$7E0102");
     a.l("and #$00FF");
+    a.l("sec");
+    a.l("sbc f:$7E01F0     ; the signed error against the ideal ratio");
+    a.l("clc");
+    a.l("adc #$0006        ; biased by 6 so the allowed band is 0..12 rather than -6..+6");
+    a.l("and #$00FF");
     a.assert_a16_range(
-        8,
-        15,
-        "timer 2 did not count roughly eight times what timer 0 did over the same interval, so it \
-         is not running from the 64 kHz stage — a core reading $01 here runs every timer at 8 kHz. \
-         NOTE: this row cannot distinguish that from timer 2 having WRAPPED past 16, so read slot \
-         267 before concluding anything; ares fails here with a recorded 0",
+        0,
+        12,
+        "timer 2 did not count within six ticks of eight times timer 0 over the same interval, so \
+         it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near \
+         a seventh of the expected count. The two raw counts are in slots 266 and 267",
     );
     apu_timeout_arm(&mut a);
     a.finish(
