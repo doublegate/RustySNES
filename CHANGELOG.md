@@ -30,8 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PAD2_CONTRACT` are not cross-validated by this runner. The in-repo harness and the snes9x libretro
   driver drive both ports, so those rows remain covered elsewhere.
 
-  Still open: Mesen2 reports no rendered scenes — the run does not reach the scene loop. That is now
-  a *next* problem rather than the same one, and the battery half of the oracle is usable today.
+  **The scene half is fixed too, and it was the same class of bug.** `mesen_scenes.lua` held **no
+  input contract at all** — no `setInput` anywhere — so the cart never left its pre-battery menu
+  there either, never ran the battery, and never reached the scene loop that follows it. The symptom
+  read as a scene-loop problem and was an input problem. With one port-1 call added:
+
+  ```
+  snes9x: 53 scene(s) match, 0 unblessed, 0 mismatched
+  Mesen2: 53 scene(s) match, 0 unblessed, 0 mismatched
+  ```
+
+  **Both halves of the oracle now arbitrate.** `docs/adr/0013` requires a golden be blessed only from
+  a render the references agree on, and for the first time both references produce one — which is the
+  gate the `v1.29.0` scene work has been waiting behind.
+
+  What remains is no longer an oracle failure but a **finding**: Mesen2 reports 1 failing test,
+  catalogue index 11 (`A2.10`), while snes9x reports only its 14 known divergences. RustySNES failing
+  alone is this project's signature for a real bug rather than a broken test — worth checking which
+  before investigating, per the standing heuristic.
 
 - **AccuracySNES oracle: the recorded diagnosis does not reproduce, and the blocker is a different
   one.** Re-measured with a new, deliberately minimal second instrument

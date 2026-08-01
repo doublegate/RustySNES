@@ -154,4 +154,21 @@ local function onFrame()
     end
 end
 
+-- The host input contract, which this script was missing ENTIRELY -- which is why it reported "no
+-- scenes at all": with nothing held the cart never leaves its pre-battery menu (that menu waits for
+-- Start), so it never runs the battery and never reaches the scene loop that follows it. The symptom
+-- read like a scene-loop problem and was an input problem, the same one `mesen_crossval.lua` had in
+-- a different form.
+--
+-- ONE call, port index 0. In this MesenCE build's --testRunner the port argument does not select a
+-- controller -- 0, 1 and 2 all land on controller 1 -- so a second call for port 2 would OVERWRITE
+-- this one with PAD2_CONTRACT ($60A0), which contains no Start. See `mesen_crossval.lua`'s comment
+-- for the full account; do not add a port-2 call here without first proving the argument works.
+local function onInput()
+    emu.setInput({ b = true, start = true, x = true, r = true,
+                   y = false, select = false, a = false, l = false,
+                   up = false, down = false, left = false, right = false }, 0)
+end
+
+emu.addEventCallback(onInput, emu.eventType.inputPolled)
 emu.addEventCallback(onFrame, emu.eventType.endFrame)
