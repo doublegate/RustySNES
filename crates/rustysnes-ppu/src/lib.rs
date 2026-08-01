@@ -1382,7 +1382,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn the_short_line_is_exactly_the_frame_whose_213f_bit7_reads_one() {
         // anomie states the rule as "scanline $f0 of every other frame (those with `$213f.7=1`)".
