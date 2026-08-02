@@ -1399,7 +1399,7 @@ latch, and **no commercial game** uses the port-1 manual-polling alternative.
 | G1.15 | HiROM decode `((bank & $3F) << 16) \| addr`; banks $40-$7D mirror $C0-$FD |
 | G1.16 | ExHiROM: A23 inverted into cart A22 |
 | G1.17 | SRAM mapping (Thracia 776 / Ys III) |
-| G1.18 | Copier header when `filesize % 1024 == 512` |
+| G1.18 | Copier header when `filesize % 1024 == 512` — **but the references implement the stricter `% 32768 == 512`** (ares/bsnes `(rom.size() & 0x7fff) == 512`); the two agree for every real cartridge image and differ only for an odd-sized dump. Measured 2026-08-01; see `rustysnes-cart/src/header.rs::detect` |
 
 Note bsnes' `Hacks/Entropy` setting (default `"Low"`) controls WRAM randomization, and it
 special-cases **Dirt Racer (Europe)** by forcing WRAM to `0xFF` — *"the game itself is broken and
