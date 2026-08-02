@@ -676,6 +676,15 @@ Provenance: **Contested** (superfamicom.org describes the wrap as happening "the
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### A6.15 — all 256 opcodes defined
+
+Provenance: **Documented** (WDC W65C816S datasheet, Table 5-4 opcode matrix). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sweep did not execute 241 opcodes cleanly — it stopped early, or it covered a different set than the 15 documented control-transfer exclusions. Slots 283-286 hold the three counts and the first opcode that was not clean |
+| 2 | `$04` | at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first |
+
 ### A5.S01 — Sweep: CLC
 
 Provenance: **Documented** (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md). Kind: scored.

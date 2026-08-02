@@ -11,6 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`A6.15` — every 65C816 opcode is defined, and only `STP` hangs. Coverage 361 of 443.** The row
+  executes each of the 241 straight-line opcodes in a WRAM sandbox and counts three outcomes against
+  the length **Table 5-4 of the WDC W65C816S datasheet** documents: returned where it should,
+  returned late, or did not return.
+
+  **The sandbox terminator cannot be a return.** `TXS` and `TCS` move the stack pointer — with
+  `x = 1` a `TXS` puts it in page zero — so the return address is no longer where an `RTS` would pop
+  it from. Control comes back through a `JMP`, and because a `JMP` is three bytes, the addresses are
+  chosen so its **own operand bytes are harmless one-byte instructions**: `$AAAA` (`TAX`) for the
+  clean exit and `$B8B8` (`CLV`) for the overshoot one. An opcode that consumes one byte too many
+  therefore executes a register transfer and walks into a `NOP` fill, instead of executing half an
+  address.
+
+  **The watchdog takes two strikes.** `runtime.s` already carried an NMI trampoline with a settable
+  vector; one strike would be wrong, because NMI fires once per vblank and across 241 sandbox runs
+  it will eventually land inside a *healthy* one.
+
+  **Four opcodes are dangerous even when correct, and the preamble handles each rather than
+  excluding it:** `MVN`/`MVP` move `A + 1` bytes, so `A = 0`; `XCE` flips to emulation mode only if
+  `C` is set, so `CLC` first makes it a no-op; `TXS`/`TCS` are why the exits restore `SP` from WRAM;
+  `SED` and `PLP` are why they re-establish `m`, `x`, `d` and `c` rather than trusting what came back.
+
+  **Verified by injection, twice.** `WDM` made a three-byte instruction produced exactly one LATE
+  with first-bad `$42`; `TRB dp` made to jam produced exactly one NO-RETURN with first-bad `$14`,
+  the watchdog rescuing the battery. Picking that second injection is not free — `SED` and `CLC`
+  both hang the cart *before* `A6.15` runs, because the runtime and earlier Group A rows execute
+  them. `TRB` is executed nowhere else on the cart.
+
+### Fixed
+
+- **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**
+  The NMI handler runs with whatever data bank the sandbox left — `$7E` — so `lda $4210` read a WRAM
+  byte and the NMI was never acknowledged. Three hosts happened never to land an NMI where it
+  showed; **ares did**, and the row reported `PLA` (`$68`) overshooting on ares alone, stably, with
+  every other opcode agreeing.
+
+  That reads exactly like a reference bug, and it was ours. The chain that settled it is worth
+  recording: a diagnostic that replaced the terminator with `INX` fill showed **both** ares and
+  RustySNES resuming at the correct offset, so `PLA`'s length was never in question; sweeping only
+  `$68` passed on ares, so the failure needed the full sweep's elapsed time; and disarming the
+  watchdog made all four hosts agree. Long addressing (`lda f:$004210`) is DBR-independent and fixes
+  it. The handler now also preserves `A` — `RTI` restores `P` and `PC` but not the accumulator, and
+  an interrupt that silently rewrites `A` is not transparent to what it interrupted.
+
+  With the fix the injections are exact where they had been approximate: the jam injection reported
+  two stuck opcodes and 63 clean ones before, and reports one and 240 now.
+
 - **`E2.10` — the full 256-opcode SPC700 cycle sweep, and the coverage number moves to 360 of 443.**
   The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
   and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies

@@ -13,7 +13,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `A3` | 10 | 10 | 0 | 0 | — |
 | `A4` | 10 | 10 | 0 | 0 | — |
 | `A5` | 15 | 14 | 0 | 0 | A5.20 |
-| `A6` | 15 | 13 | 0 | 0 | A6.13, A6.15 |
+| `A6` | 15 | 14 | 0 | 0 | A6.13 |
 | `A7` | 5 | 5 | 0 | 0 | — |
 | `A8` | 6 | 6 | 0 | 0 | — |
 | `A9` | 3 | 3 | 0 | 0 | — |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 13 | 0 | 0 | F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 15 | 0 | 2 | G1.13 |
 
-**303 of 443** enumerated assertion rows covered by an on-cart test, plus **55** covered only by a rendered scene (`docs/adr/0013`) and **2** covered only by a host-side test — **360 of 443** in total.
+**304 of 443** enumerated assertion rows covered by an on-cart test, plus **55** covered only by a rendered scene (`docs/adr/0013`) and **2** covered only by a host-side test — **361 of 443** in total.
 
 The three columns are kept apart on purpose, in descending order of what the evidence is worth. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden; a **host-side** cover is this project testing its own code, which is the one thing AccuracySNES exists to stop being the only evidence. The host tier is admitted only where the cart *physically cannot* observe the assertion — the stimulus comes from outside the cartridge, or the subject is the loader rather than the machine — and every entry names the test and the reason (`dossier.rs::HOST_COVERED`). Adding the columns into one figure would quietly change what the number claims.
 

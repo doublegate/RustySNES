@@ -599,7 +599,7 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
 ///
 /// Version-agnostic on purpose: this list grows whenever a Group E row records a slot, and naming
 /// one release in the doc made it wrong the first time it did.
-const GROUP_E_BATCH_SLOTS: [(u16, &str); 25] = [
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 29] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
         257,
@@ -629,6 +629,13 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 25] = [
         "B2.07 APU ticks over 48 frames (~6398 NTSC, ~7689 PAL)",
     ),
     (276, "B2.07 measured frame height (261 NTSC, 311 PAL)"),
+    (
+        283,
+        "A6.15 opcodes returning at their documented length (expect 241)",
+    ),
+    (284, "A6.15 opcodes returning LATE (expect 0)"),
+    (285, "A6.15 opcodes that did not return (expect 0)"),
+    (286, "A6.15 first opcode that was not clean ($FF = none)"),
     (280, "E2.10 opcodes disagreeing with fullsnes (expect 0)"),
     (281, "E2.10 opcodes measured (expect 231)"),
     (282, "E2.10 first disagreeing opcode ($FF = none)"),
