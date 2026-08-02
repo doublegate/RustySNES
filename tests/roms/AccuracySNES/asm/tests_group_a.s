@@ -23426,7 +23426,7 @@ CATALOG_IMPL = 1
     rep #$30
     .a16
     .i16
-    lda #69
+    lda #83
     sta f:V_APU_LEN
     lda #$0200
     sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
@@ -23478,20 +23478,23 @@ CATALOG_IMPL = 1
     .i16
     lda f:$7E0101
     and #$00FF
-    ; record slot 266: E3.06 timer 0 ticks over the interval
+    ; record slot 266: E3.06 timer 0 ticks, ACCUMULATED across polls (no end-of-interval phase)
     sta f:$7EE414
     lda f:$7E0102
     and #$00FF
     ; record slot 267: E3.06 timer 2 ticks, ACCUMULATED across polls (no 4-bit ceiling)
     sta f:$7EE416
-    ; Timer 0 first: the interval has to contain a couple of its ticks for a ratio to exist.
+    ; Timer 0 first: the interval has to contain several of its ticks for a ratio to exist. The
+    ; band is wide because the poll loop's cycle cost is a per-core detail the ratio below is
+    ; designed to be insensitive to; this guard only has to reject `nothing ticked` and a run
+    ; length that would wrap a byte accumulator.
     lda f:$7E0101
     and #$00FF
-    cmp #$0001
+    cmp #$0006
     bcs :+
     jmp @fail1
   :
-    cmp #$0007
+    cmp #$0015
     bcc :+
     jmp @fail1
   :
@@ -23510,13 +23513,13 @@ CATALOG_IMPL = 1
     sec
     sbc f:$7E01F0     ; the signed error against the ideal ratio
     clc
-    adc #$0006        ; biased by 6 so the allowed band is 0..12 rather than -6..+6
+    adc #$000A        ; biased by 10 so the allowed band is 0..20 rather than -10..+10
     and #$00FF
     cmp #$0000
     bcs :+
     jmp @fail2
   :
-    cmp #$000D
+    cmp #$0015
     bcc :+
     jmp @fail2
   :
@@ -23541,7 +23544,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; timer 2 did not count within six ticks of eight times timer 0 over the same interval, so it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near a seventh of the expected count. The two raw counts are in slots 266 and 267
+    ; timer 2 did not count within ten ticks of eight times timer 0 over the same interval, so it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near a seventh of the expected count, which is some ninety ticks out. The two raw counts are in slots 266 and 267
     sep #$20
     .a8
     lda #$04
@@ -34947,11 +34950,12 @@ apu_prog_113:
     .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_114:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $01, $FC, $8F, $00, $10
-    .byte $8F, $00, $11, $E4, $FD, $E4, $FF, $8F, $85, $F1, $E4, $FF
-    .byte $C4, $12, $E4, $10, $60, $84, $12, $C4, $10, $AB, $11, $E4
-    .byte $11, $68, $18, $D0, $ED, $8F, $80, $F1, $E4, $FD, $C4, $F6
-    .byte $E4, $10, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
-    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+    .byte $8F, $00, $11, $8F, $00, $13, $E4, $FD, $E4, $FF, $8F, $85
+    .byte $F1, $E4, $FF, $C4, $12, $E4, $10, $60, $84, $12, $C4, $10
+    .byte $E4, $FD, $C4, $12, $E4, $13, $60, $84, $12, $C4, $13, $AB
+    .byte $11, $E4, $11, $68, $20, $D0, $E2, $8F, $80, $F1, $E4, $13
+    .byte $C4, $F6, $E4, $10, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
+    .byte $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 apu_prog_115:
     .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $0B, $F0, $8F, $81, $F1
     .byte $8D, $00, $FE, $FE, $8F, $80, $F1, $E4, $FD, $C4, $F6, $8F

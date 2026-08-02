@@ -626,10 +626,13 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 19] = [
         "B2.07 APU ticks over 48 frames (~6398 NTSC, ~7689 PAL)",
     ),
     (276, "B2.07 measured frame height (261 NTSC, 311 PAL)"),
-    (266, "E3.06 timer 0 ticks over the interval"),
+    (
+        266,
+        "E3.06 timer 0 ticks, accumulated across polls (expect ~13)",
+    ),
     (
         267,
-        "E3.06 timer 2 ticks over the SAME interval (TnOUT wraps at 16)",
+        "E3.06 timer 2 ticks over the SAME interval (expect ~8x slot 266)",
     ),
 ];
 
