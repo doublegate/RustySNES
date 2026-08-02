@@ -11,6 +11,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`v1.30.0` mobile store-readiness: the App Store §4.7 self-audit, a release build path, and a
+  UniFFI runtime smoke test — plus a correction to four stale claims in the readiness doc.**
+
+  **The §4.7 self-audit** (`docs/app-store-4-7-self-audit.md`) is the item `docs/mobile-readiness.md`
+  recorded as outstanding, and it is the only one of the store-facing items that is *not*
+  maintainer-blocked. It passes on all five criteria, and the strongest evidence is capability rather
+  than intent: **Android declares no permissions at all — not even `INTERNET`** — and iOS has no
+  networking code, so neither shell *can* obtain game software. Every user-visible string in both
+  shells was enumerated; the complete set is `RustySNES`, `Open ROM`, `Save State`, `Load State`. Two
+  re-audit triggers are recorded: the peripheral UI when it lands (Super Scope / Mouse / Multitap
+  names are a fresh trademark decision, and the audit does not pre-approve them) and
+  `rustysnes-monetization` if it is ever activated.
+
+  **An unsigned `assembleRelease` path**, with its own 16 KB alignment gate on the release APK.
+  Signing material is the maintainer's to provision, so a *signed* release build stays out of reach —
+  but an unsigned one still runs R8, resource shrinking and the release manifest merge, which is
+  where release-only breakage lives. `isMinifyEnabled` is `false` today, so this currently proves the
+  release variant assembles; it is wired now because the moment minification is enabled, this is what
+  catches the fallout.
+
+  **An instrumented UniFFI smoke test** (`android/app/src/androidTest`), in its own CI job.
+  `assembleDebug` already proves the bindings *compile* — `MainActivity` calls `MobileCore` directly.
+  What no build can prove is that `System.loadLibrary` finds the `.so` for the device's ABI, that
+  JNA's mapping matches its symbols, and that a call marshals across and returns. This project has
+  already shipped one native Android crash a build could not have caught. It is a separate job
+  because an emulator is the flakiest thing in that workflow, and a flaky step inside `build` would
+  put the 16 KB gates — which are not flaky and do gate a real Play requirement — behind an AVD boot.
+
+  **Four entries in the readiness doc's deferred list had gone stale** and are now marked DONE rather
+  than deleted, because a readiness document that silently drops items cannot be audited backwards:
+  `android.yml` exists and gates alignment twice, the `./gradlew` wrapper is committed, `ios.yml`
+  boots a simulator and requires the app to survive the launch, and the §4.7 audit is done. What
+  remains genuinely outstanding is stated as such — distribution signing, TestFlight, and Play's Data
+  Safety form, all maintainer-blocked. **Mobile Phase 6 stays NOT GREENLIT**; passing this audit
+  removes a prerequisite from that gate's checklist, it does not move the gate.
+
 - **`A6.15` — every 65C816 opcode is defined, and only `STP` hangs. Coverage 361 of 443.** The row
   executes each of the 241 straight-line opcodes in a WRAM sandbox and counts three outcomes against
   the length **Table 5-4 of the WDC W65C816S datasheet** documents: returned where it should,

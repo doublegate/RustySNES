@@ -18,6 +18,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.18.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -46,6 +47,12 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
+        }
+        // The instrumented UniFFI smoke test needs the same generated bindings the app uses --
+        // `androidTest` compiles as its own variant and does not inherit `main`'s generated
+        // sources automatically.
+        getByName("androidTest") {
+            kotlin.srcDirs("src/androidTest/kotlin")
         }
     }
 }
@@ -130,6 +137,12 @@ tasks.named("preBuild") {
 }
 
 dependencies {
+    // The instrumented UniFFI smoke test (`src/androidTest`). It proves the generated bindings
+    // LOAD and CALL on a device, which a build cannot: `assembleDebug` already proves they
+    // compile, because `MainActivity` calls `MobileCore` directly.
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

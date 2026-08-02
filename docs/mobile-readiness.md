@@ -214,6 +214,11 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
 
 ## Not yet verified / explicitly deferred
 
+> **Audited 2026-08-02 (`v1.30.0`).** Four entries in this list had gone stale — `android.yml`, the
+> `./gradlew` wrapper, the iOS simulator *run*, and the §4.7 self-audit all exist now. They are kept
+> below, marked **DONE**, rather than deleted: a readiness document that silently drops items is one
+> nobody can audit backwards. What remains genuinely outstanding is stated as such.
+
 - **Mouse/Super Scope touch UX — the arithmetic is done, the on-screen controls are not.**
   `rustysnes-mobile::touch` maps a touch through the letterboxed viewport into SNES screen space
   (`map_touch_to_screen`) and turns a drag into Mouse counts with a carried residual (`TouchMouse`),
@@ -223,21 +228,37 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
   `cargo test` failure rather than a user aiming half a screen off. Still outstanding: the on-screen
   affordances themselves (a Scope reticle, Mouse button targets, a peripheral picker) and Multitap,
   whose port assignment is UI, not arithmetic. P1 standard gamepad remains the only wired input.
-- **No `android.yml` CI workflow yet** — NDK cross-build, UniFFI Kotlin smoke test, 16KB ELF
-  page-alignment check, dormant Play-flavor Gradle split — `v1.15.1+`.
-- **No checked-in `./gradlew` wrapper yet** — this environment used its locally cached Gradle
-  8.11 distribution directly; a proper wrapper should still be generated/committed for
-  reproducibility — `v1.15.1+`.
-- **No on-device or simulator *run* has happened — only a build.** This development environment
-  has no macOS/Xcode toolchain at all, so nothing here can be run interactively;
-  `.github/workflows/ios.yml`'s `macos-latest` job (real `xcodegen generate` + unsigned
-  `xcodebuild` simulator build) is the only real verification this Swift/Xcode code has ever had,
-  and it now genuinely passes (see "Verified so far" above) — but a passing build proves the code
-  compiles and links, not that it behaves correctly at runtime (no ROM has ever actually booted
-  here).
-- **No TestFlight upload, no App Store §4.7 self-audit, no real distribution signing** — the
-  `ios.yml` step exists but is an explicit no-op pending the project owner provisioning real
-  signing secrets.
+- **`android.yml` exists and gates 16 KB alignment twice — DONE (`v1.30.0` audit).** The workflow
+  cross-builds the JNI libraries for all four ABIs, asserts 16 KB ELF page alignment on the 64-bit
+  `.so`s *and* again inside the packaged APK, confirms the APK carries every ABI, and uploads it.
+  The APK-level gate is not redundant: Gradle's `cargoNdkBuild` re-runs `cargo ndk` in its own
+  process and does **not** inherit `RUSTFLAGS` from the earlier steps, so without it the APK ships
+  4 KB-aligned libraries while the standalone build produced 16 KB ones — the exact false pass the
+  second gate now catches.
+- **A `./gradlew` wrapper is checked in — DONE.** `android/gradlew`, `android/gradlew.bat` and
+  `android/gradle/wrapper/` are all in the repo, and CI builds through the wrapper rather than a
+  locally cached distribution.
+- **An unsigned `assembleRelease` path exists — DONE (`v1.30.0`).** Signing material is the project
+  owner's to provision, so a *signed* release build is still out of reach; an unsigned one is not,
+  and it runs R8, resource shrinking and the release manifest merge — where release-only breakage
+  actually lives. `isMinifyEnabled` is `false` today, so at this revision it proves the release
+  variant assembles; it is wired now because the moment minification is enabled this step is what
+  catches the fallout. The release APK gets its own 16 KB gate, on the artifact that would ship.
+- **iOS runs in a simulator, not just a build — DONE.** `.github/workflows/ios.yml` picks an
+  available iPhone simulator, boots it (`simctl bootstatus -b`), installs the built `.app`, launches
+  it and requires it to still be alive afterwards. That closes the "no ROM has ever actually booted
+  here" gap at the *app-launch* level. It does **not** prove a ROM boots — the simulator run has no
+  ROM to open, because the app takes ROMs only from the user's document picker (by design; see
+  `docs/app-store-4-7-self-audit.md`).
+- **The App Store §4.7 self-audit is DONE (`v1.30.0`)** — `docs/app-store-4-7-self-audit.md`. It
+  passes on all five criteria checked, with the strongest evidence being capability rather than
+  intent: Android declares **no permissions at all**, not even `INTERNET`, and iOS has no networking
+  code, so neither shell *can* obtain game software. Two re-audit triggers are recorded there (the
+  peripheral UI when it lands, and `rustysnes-monetization` if activated).
+- **Still genuinely outstanding: distribution signing and TestFlight** — the `ios.yml` upload step
+  is an explicit no-op pending the project owner provisioning real signing secrets, and Play's Data
+  Safety form is a console declaration rather than a code property. The §4.7 audit above supplies
+  that form's likely content: no permissions, no network, no data leaving the device.
 - **No store-submission readiness assessment yet** — see "Mobile Phase 6 — store-launch gate
   status" below for the full gate criteria and current disposition.
 
