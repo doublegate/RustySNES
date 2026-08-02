@@ -62,6 +62,55 @@ fn manifest_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/roms/AccuracySNES/build/scenes.tsv")
 }
 
+/// How a host turns the frame it emits into the canonical 256x224 sample.
+///
+/// Declared per scene in `build/scenes.tsv`'s fourth column and NOT inferred from the geometry —
+/// see [`hash_scene`] for why that distinction is the point rather than pedantry.
+/// `docs/adr/0013`, 2026-08-02 supplement.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Extract {
+    /// 256-wide frame, rows `FIRST_ROW..FIRST_ROW + SCENE_H`.
+    Direct,
+    /// 512-wide frame: the even columns, which are the subscreen half.
+    HiResEven,
+}
+
+impl Extract {
+    fn parse(tag: &str) -> Self {
+        match tag.trim() {
+            "direct" => Self::Direct,
+            "hires-even" => Self::HiResEven,
+            // A host meeting a rule it does not implement must REJECT, never fall back to
+            // `Direct` — falling back would silently hash the left half of a hi-res picture.
+            other => panic!(
+                "scenes.tsv declares extraction `{other}`, which this host does not implement. \
+                 Falling back to `direct` would silently hash the wrong region; add the rule or \
+                 rebuild the cart."
+            ),
+        }
+    }
+}
+
+/// Scene index (1-based, as the cart publishes it) -> the scene's declared extraction.
+fn extractions() -> BTreeMap<u8, Extract> {
+    // Read, not `unwrap_or_default`: an unreadable manifest would make every scene `Direct` with no
+    // failure anywhere, which for a hi-res scene means hashing the left half of the picture. The
+    // missing-file case is separately caught by `manifest()`'s emptiness assert, but a *read error*
+    // on a file that exists would slip through that, and this is the reader whose silence is
+    // dangerous.
+    let path = manifest_path();
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            let idx: u8 = f.first()?.trim().parse().ok()?;
+            Some((idx, Extract::parse(f.get(3).copied().unwrap_or("direct"))))
+        })
+        .collect()
+}
+
 /// Scene index (1-based, as the cart publishes it) -> stable scene ID.
 ///
 /// The cart can only publish a number, and a number is a poor golden key: inserting a scene would
@@ -109,11 +158,29 @@ const FIRST_ROW: usize = 0;
 /// core hands back RGB565 or XRGB8888. Each side converts to the same canonical 15-bit form before
 /// hashing, so a golden compares pictures rather than pixel-format conventions. The hash itself is
 /// the one `undisbeliever_golden.rs` uses, so the two golden sets are comparable in kind.
-fn hash_scene(fb: &[u16], width: usize) -> (u64, Vec<u16>) {
-    assert_eq!(
-        width, SCENE_W,
-        "a rendered scene must not be hi-res: the golden is defined over {SCENE_W}x{SCENE_H}"
-    );
+fn hash_scene(fb: &[u16], width: usize, extract: Extract) -> (u64, Vec<u16>) {
+    // The declared extraction and the observed geometry must AGREE — the host does not infer one
+    // from the other. Inferring would let a scene that is supposed to be hi-res, but which a broken
+    // core rendered 256 wide, be hashed as `Direct` and match a `Direct` golden; the declaration is
+    // what turns that into a failure. `docs/adr/0013`'s 2026-08-02 supplement.
+    let step = match extract {
+        Extract::Direct => {
+            assert_eq!(
+                width, SCENE_W,
+                "scene declares `direct` but the frame is {width} wide, not {SCENE_W}"
+            );
+            1
+        }
+        Extract::HiResEven => {
+            assert_eq!(
+                width,
+                SCENE_W * 2,
+                "scene declares `hires-even` but the frame is {width} wide, not {}",
+                SCENE_W * 2
+            );
+            2
+        }
+    };
     assert!(
         fb.len() >= (FIRST_ROW + SCENE_H) * width,
         "the framebuffer holds {} pixels, too few for rows {FIRST_ROW}..{} at width {width} — the \
@@ -126,7 +193,10 @@ fn hash_scene(fb: &[u16], width: usize) -> (u64, Vec<u16>) {
     let mut px = Vec::with_capacity(SCENE_W * SCENE_H);
     for y in FIRST_ROW..FIRST_ROW + SCENE_H {
         for x in 0..SCENE_W {
-            let p = fb[y * width + x];
+            // Even columns only under `HiResEven`: the subscreen half, which is the half the three
+            // references agree on. RustySNES's own framebuffer is not line-doubled, so the row
+            // index needs no step — Mesen2's does, and that is handled in its own host.
+            let p = fb[y * width + x * step];
             let canonical = ((p & 0x1F) << 10) | (p & 0x03E0) | ((p >> 10) & 0x1F);
             px.push(canonical);
             h ^= u64::from(canonical);
@@ -167,6 +237,7 @@ fn capture_scenes() -> BTreeMap<u8, u64> {
 
     let mut seen: BTreeMap<u8, u64> = BTreeMap::new();
     let mut sightings: BTreeMap<u8, u32> = BTreeMap::new();
+    let extracts = extractions();
     let mut current = 0u8;
     let mut battery_done = false;
 
@@ -188,7 +259,8 @@ fn capture_scenes() -> BTreeMap<u8, u64> {
         // frame rather than by trying to make the two clocks agree.
         if scene != 0 && sightings[&scene] == CAPTURE_SIGHTING && !seen.contains_key(&scene) {
             let width = sys.bus.ppu.visible_width();
-            let (hash, px) = hash_scene(sys.bus.ppu.framebuffer(), width);
+            let extract = *extracts.get(&scene).unwrap_or(&Extract::Direct);
+            let (hash, px) = hash_scene(sys.bus.ppu.framebuffer(), width, extract);
             seen.insert(scene, hash);
             // Same escape hatch the libretro host has (`--scene-dump=`): when two renders disagree,
             // the hashes say only *that* they differ. Set ACCURACYSNES_SCENE_DUMP to a path prefix

@@ -38,6 +38,38 @@ local SCENE_H = 224
 -- real planned work; it has to start from a loud rejection here, not a silent wrong picture.
 local SCENE_BUF_LEN = SCENE_W * 239
 
+-- Per-scene extraction, read from the manifest the SAME BUILD wrote next to the ROM
+-- (`docs/adr/0013`, 2026-08-02 supplement). Read rather than hard-coded so this host cannot drift
+-- from the C and Rust ones. A rule this host does not implement is a hard error, never a fallback
+-- to `direct` -- falling back would silently hash the left half of a hi-res picture.
+local EXTRACT = {}
+local function loadExtractions(romPath)
+    local dir = romPath:match("^(.*)/[^/]*$") or "."
+    local f = io.open(dir .. "/scenes.tsv", "r")
+    if not f then
+        return
+    end
+    for line in f:lines() do
+        if line:sub(1, 1) ~= "#" then
+            -- `%S+` would keep a trailing CR from a CRLF checkout, and every tag would then
+            -- compare unequal and take the fatal branch below.
+            local idx, _, _, tag = line:match("^(%d+)	([^	]*)	([^	]*)	(%S+)")
+            if tag then
+                tag = tag:gsub("\r$", "")
+            end
+            if idx then
+                if tag == "direct" or tag == "hires-even" then
+                    EXTRACT[tonumber(idx)] = tag
+                else
+                    print("ACCURACYSNES-SCENES-BADEXTRACT " .. tag)
+                    emu.stop(252)
+                end
+            end
+        end
+    end
+    f:close()
+end
+
 -- The buffer row Mesen2's picture starts on. An output convention, exactly like pixel format:
 -- Mesen hands back 256x239 whose picture begins 7 rows in, snes9x's libretro core already starts
 -- at the first visible line, and RustySNES composites from scanline 0. Calibrated by comparing
@@ -104,17 +136,25 @@ local function hashFrame(id)
     -- and the loop below then walks it with a stride of 256, hashing a diagonal slice of the
     -- picture while reporting success. A golden blessed from that would be stable, reproducible
     -- and wrong. Measured 2026-08-01: every current scene returns exactly 61184 = 256 x 239.
-    local width = SCENE_W
-    if #buf ~= SCENE_BUF_LEN then
-        print("ACCURACYSNES-SCENES-BADGEOMETRY " .. #buf .. " expected " .. SCENE_BUF_LEN)
+    -- `hires-even` samples every other column of a 512-wide picture -- the subscreen half -- and
+    -- every other ROW, because Mesen2 line-doubles a hi-res frame (measured 2026-08-02: it emits
+    -- 512x478 where snes9x emits 512x224).
+    local hires = EXTRACT[id] == "hires-even"
+    local width = hires and (SCENE_W * 2) or SCENE_W
+    local xstep = hires and 2 or 1
+    local ystep = hires and 2 or 1
+    local wantLen = hires and (SCENE_BUF_LEN * 4) or SCENE_BUF_LEN
+    if #buf ~= wantLen then
+        print("ACCURACYSNES-SCENES-BADGEOMETRY " .. #buf .. " expected " .. wantLen
+              .. " for extraction " .. (EXTRACT[id] or "direct"))
         return nil
     end
     local h = 0xcbf29ce484222325
     local px = {}
     for y = 0, SCENE_H - 1 do
-        local row = (y + FIRST_ROW) * width
+        local row = (y + FIRST_ROW) * ystep * width
         for x = 0, SCENE_W - 1 do
-            local v = buf[row + x + 1]
+            local v = buf[row + x * xstep + 1]
             -- Mesen hands back 24-bit RGB; the SNES channels are 5-bit widened to 8, so the top
             -- five bits recover the original rather than inventing precision.
             local r = (v >> 19) & 0x1F
@@ -189,6 +229,14 @@ local function onInput()
     emu.setInput({ b = true, start = true, x = true, r = true,
                    y = false, select = false, a = false, l = false,
                    up = false, down = false, left = false, right = false }, 0)
+end
+
+-- The manifest lives next to the ROM the runner was pointed at. `emu.getRomInfo()` is how a Lua
+-- script learns that path; without it this host would have to be told separately and could then be
+-- reading a manifest from a different build than the ROM it is running.
+local info = emu.getRomInfo and emu.getRomInfo() or nil
+if info and info.path then
+    loadExtractions(info.path)
 end
 
 emu.addEventCallback(onInput, emu.eventType.inputPolled)
