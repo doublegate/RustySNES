@@ -202,3 +202,41 @@ The scene is left **unblessed**. Rule 4 would permit blessing at the reference v
 references agree — but that turns the scene gate red on a live finding, and an unblessed scene does
 not fail the gate, so the finding is preserved without taking the tree red. The investigation is
 tracked separately; blessing follows the fix.
+
+### Correction, same day — that divergence is a 2-vs-2, not a RustySNES bug
+
+The claim above ("the two references agree bit-for-bit ... one host failing alone means a bug in
+that host") is **withdrawn**. It was made from two references without consulting the third.
+
+Diffing the pixels rather than the hashes: the divergence is **exactly one column** — column 0 of
+the extracted sample, the first pixel of the 512-wide picture — on all 224 rows, and nothing else.
+224 differing pixels of 57,344; RustySNES `0x0000`, snes9x `0x0421` (the backdrop).
+
+ares' source settles it against the original conclusion. `sfc/ppu/dac.cpp::scanline()`:
+
+```cpp
+//the first hires pixel of each scanline is transparent
+//note: exact value initializations are not confirmed on hardware
+math.above.colorEnable = false;
+```
+
+and `below()` returns `math.above.colorEnable ? math.below.color : (n15)0` — **black** at line
+start. RustySNES seeds `above_enable: false` and does the same thing. So the split is **RustySNES +
+ares against snes9x + Mesen2**, and ares explicitly flags its own initialisation as *not confirmed
+on hardware*.
+
+Consequences, recorded so the scene is not mistaken for a pending fix:
+
+- There is **no defect here to fix**. Changing column 0 to emit the backdrop would move RustySNES
+  off ares' behaviour to match the other two on a value ares says is unverified.
+- `c5-mode5-hires-16px-tiles` is **not blessable** under rule 4 and stays permanently unblessed
+  unless real hardware settles it — a variant set, not a pending golden.
+- `C5.15` does not become coverage this way. A hi-res scene that avoids column 0, or a hash that
+  excludes the first column, would make the rest of Mode 5 blessable; that is the follow-up.
+- The extraction itself is **vindicated**: two hosts with different geometries produced identical
+  hashes for the other 57,120 pixels.
+
+The method note is the durable part. Two references agreeing is not "the references agree" — this
+project counts ares and bsnes as **one** reference precisely because lineage matters, and here the
+lineage that disagreed was the one not consulted. Read the third source *before* publishing a defect
+claim, not after.
