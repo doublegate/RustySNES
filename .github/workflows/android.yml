@@ -255,6 +255,69 @@ jobs:
           done
           exit "$fail"
 
+      # The RELEASE build path, and it is deliberately UNSIGNED.
+      #
+      # Signing material is the project owner's to provision and this workflow does not hold it, so
+      # a *signed* release build is out of reach here. An unsigned one is not: `assembleRelease`
+      # still runs R8, resource shrinking and the release manifest merge, which is where
+      # release-only breakage actually lives -- a missing keep rule strips a class the UniFFI
+      # bindings reach reflectively, and the debug build never notices because it does not minify.
+      #
+      # `isMinifyEnabled` is `false` in `app/build.gradle.kts` today, so this currently proves the
+      # release variant assembles at all. It is wired now rather than when minification is turned
+      # on, because the moment it is turned on this step is what catches the fallout.
+      - name: Assemble the release APK (unsigned)
+        working-directory: android
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        run: ./gradlew --no-daemon assembleRelease
+
+      # The same 16 KB gate as the debug APK's, on the release variant. Not redundant: the release
+      # variant has its own packaging and its own shrinking, so alignment has to be proven on the
+      # artifact that would actually ship, not inferred from the one that would not.
+      - name: Assert 16 KB page alignment inside the RELEASE APK
+        run: |
+          set -euo pipefail
+          apk=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          test -n "$apk" || { echo "no release APK was produced"; exit 1; }
+          work=$(mktemp -d)
+          unzip -q "$apk" 'lib/*' -d "$work"
+          # The SAME three properties the debug gate above settled on, and the first version of
+          # this step got all three wrong by re-implementing instead of reusing:
+          #   1. DIVISIBILITY, not string equality. `0x8000` and `0x20000` are valid -- the
+          #      requirement is "at least 16 KB". The debug gate's own comment records that an
+          #      equality test wrongly flagged JNA's 64 KB-aligned libjnidispatch.so.
+          #   2. EVERY LOAD segment, not just the first (`awk ... exit` read one and stopped).
+          #   3. A `checked == 0` guard. Without it a missing ABI directory makes the glob match
+          #      nothing and the gate PASSES on an APK with no libraries in it at all.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
+          fail=0
+          checked=0
+          for abi in arm64-v8a x86_64; do
+            for so in "$work"/lib/"$abi"/*.so; do
+              [ -e "$so" ] || { echo "::error::the release APK carries no .so for $abi"; exit 1; }
+              checked=$((checked + 1))
+              if aligned16k "$so"; then
+                echo "ok: $abi/$(basename "$so")"
+              else
+                echo "::error::$so has LOAD segment(s) not a multiple of 16 KB"
+                readelf -lW "$so" | awk '$1 == "LOAD"'
+                fail=1
+              fi
+            done
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::the release alignment gate checked nothing"
+            exit 1
+          fi
+          exit "$fail"
+
       - name: Upload the APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -262,3 +325,88 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+  # The UniFFI RUNTIME smoke test, in its own job on purpose.
+  #
+  # `build` above proves the bindings COMPILE -- `MainActivity` calls `MobileCore` directly, so
+  # bindgen output that drifted from the Rust API fails the Kotlin compile there. What no build can
+  # prove is that `System.loadLibrary` finds the `.so` for the device's ABI, that JNA's mapping
+  # matches the symbols in it, and that a call marshals across and returns. This project has already
+  # shipped one native Android crash that a build could not have caught.
+  #
+  # A separate job, not another step in `build`: an emulator is the flakiest thing in this workflow,
+  # and a flaky step inside `build` would put the 16 KB alignment gates -- which are not flaky, and
+  # which gate a real Play requirement -- behind an AVD boot.
+  #
+  # The emulator runs x86_64, but that is NOT the set of Rust targets this job needs. Gradle's
+  # `cargoNdkBuild` builds every ABI in `app/build.gradle.kts`'s `cargoAbis` map -- arm64-v8a AND
+  # x86_64 -- before the instrumented test can install anything, so both targets must be installed
+  # or the task fails on `can't find crate for core`. Installing only x86_64 because "the emulator
+  # runs the host ABI" confuses what the emulator RUNS with what the build COMPILES; that is
+  # exactly how this job failed on its first run.
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_NET_RETRY: "10"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-setup
+
+      - name: Add the Android targets Gradle's cargoNdkBuild needs
+        run: rustup target add x86_64-linux-android aarch64-linux-android
+
+      # The same NDK and the same discovery as the `build` job, deliberately: `sdkmanager` is NOT
+      # on PATH on `ubuntu-latest` even though `$ANDROID_HOME` is set, which that job found the
+      # hard way on its first run. Two jobs building the same libraries with different NDKs would
+      # also make a divergence between them impossible to attribute.
+      - name: Install the NDK from the runner's Android SDK
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?the runner image is expected to provide an Android SDK}"
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdk" ]; then
+            echo "::error::no sdkmanager at $sdk"
+            ls -la "$ANDROID_HOME/cmdline-tools" || true
+            exit 1
+          fi
+          "$sdk" --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked --version ^3
+
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # KVM has to be enabled explicitly on GitHub's Linux runners, or the AVD falls back to
+      # software rendering and the boot times out rather than failing with a clear reason.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # `RUSTFLAGS` for the same reason the `build` job sets it on its Gradle step: Gradle's
+      # `cargoNdkBuild` re-runs `cargo ndk` in its own process and inherits this environment, not
+      # the flags of any earlier step.
+      # Bounded, for the reason the job exists: the split contains the blast radius of a flaky
+      # emulator but does not bound its runtime, and an AVD that never reaches boot-complete would
+      # otherwise burn the whole job timeout. The observed run is ~6.5 minutes.
+      - name: Run the instrumented UniFFI smoke test
+        timeout-minutes: 25
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: android
+          script: ./gradlew --no-daemon connectedDebugAndroidTest

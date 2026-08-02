@@ -274,3 +274,7 @@ WARP.md
 **/*.cgp
 **/*.sym
 /presets/
+
+# Copied in by Gradle's `copyTestRom` from tests/roms/AccuracySNES/build -- build output,
+# not source, matching how android/app/src/main/jniLibs is handled.
+/android/app/src/androidTest/assets/
