@@ -124,3 +124,57 @@ state, holds it for a fixed number of frames, and publishes the current scene ID
 block. The host steps frames, watches the scene marker, and hashes the framebuffer on the last frame
 of each hold. Wholly deterministic, and on real hardware the same loop is simply a slideshow the
 viewer can watch.
+
+## Supplement, 2026-08-02 — hi-res needs an extraction rule, not a wider region
+
+The `C5.15`, `C10.04` and `C9` hi-res rows were parked behind "widen the capture region past
+256x224". **That framing is wrong**, and the measurement that shows why is worth recording before
+anyone builds to it.
+
+A minimal Mode 5 frame was rendered as a throwaway scene and each host asked what it emits:
+
+| host | ordinary frame | Mode 5 hi-res frame |
+|---|---|---|
+| snes9x (libretro) | 256x224 | **512x224** — width doubled |
+| Mesen2 (Lua) | 256x239 | **512x478** — width **and height** doubled |
+
+The two references do not agree on the *shape* of a hi-res frame, never mind its pixels: Mesen2
+line-doubles and snes9x does not. A capture contract that simply says "512 wide now" would be
+comparing a 224-row picture against a 478-row one.
+
+Combined with the earlier empirical finding — on a real Mode 5 scene the even/subscreen columns
+agree within 0.4-3% across all three references while the odd/mainscreen columns diverge **33-35%
+pairwise** — the shape of the answer is:
+
+- take the **even columns** of the 512-wide picture (the subscreen half, the half the references
+  agree on);
+- from Mesen2, additionally take the **even rows**, since its 478 is a line-double of 239;
+- which yields a 256x224 sample again.
+
+So the region size does not change at all. What a hi-res scene needs is a **declared per-scene
+extraction** — a rule for turning whatever the host emits into the canonical 256x224 sample.
+
+Concretely, so three hosts cannot each invent their own: `Scene` gains an `extract` field of a small
+closed enum, and the value is emitted as a **column in `build/scenes.tsv`** rather than compiled into
+any host. Every host already parses that file to learn the scene list; making the rule travel with
+the scene is what stops the C, Lua and Rust implementations drifting apart, which is the same reason
+`FIRST_ROW` is a declared per-host constant rather than a guess.
+
+| `extract` | meaning |
+|---|---|
+| `Direct` | today's behaviour — the frame is 256 wide, take `SCENE_H` rows from `FIRST_ROW`. Every existing scene, and the default, so no golden moves. |
+| `HiResEven` | the frame is 512 wide: take even columns, and even rows as well on a host whose height also doubled. Yields the same canonical 256x224 sample. |
+
+A host that meets an `extract` value it does not implement must **reject the scene**, exactly as it
+now rejects an out-of-contract geometry — never fall back to `Direct`, which would silently hash the
+left half of a hi-res picture and is the failure this whole supplement exists to prevent. The mainscreen halves of `C5.06`/`C5.07` and
+`C9.01`/`.02`/`.07`/`.08` stay golden-blocked regardless, because rule 4 forbids blessing a golden
+the references disagree about, and on those columns they do.
+
+The prerequisite for any of this was that a host must *reject* an out-of-contract geometry rather
+than silently hash it. Both hosts' checks were lower bounds until 2026-08-02 — they caught a frame
+that was too small and passed one that was too large, hashing a diagonal slice (Mesen2's Lua, from a
+256 stride over a 512-wide buffer) or the leftmost 256 columns (the libretro host, which uses the
+real pitch). That is fixed in **PR #320** (`libretro_crossval.c`'s exact `w`/`h` test and
+`mesen_scenes.lua`'s exact `SCENE_BUF_LEN`), which landed before this supplement; the loud rejection
+it added is literally what produced the table above.
