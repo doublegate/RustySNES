@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`inidisp_forgot_to_force_blank`: the model difference is now identified exactly, and a recorded
+  claim about it is corrected.** The last per-dot framebuffer gap was documented only as "an
+  `internal_cgram_address` draw-ordering detail". The concrete difference: MesenCE updates
+  `InternalCgramAddress` inside `GetRgbColor`, called **only when `color > 0`** and **per layer
+  during tilemap render** — so a transparent pixel leaves the previous opaque column's value standing,
+  and several layers may update it within one column. RustySNES assigns it **once per column,
+  unconditionally, from the composited pixel** at the draw cursor. Structurally different models, not
+  an off-by-one.
+
+  **Gate-on-opaque is not the fix**, measured rather than assumed: wrapping the assignment in
+  `if ap.opaque` moves the ROM's hash from `0xaeb678a4165b28c5` to `0xa55bd66a1e6dd125` — still not
+  the MesenCE-agreeing golden — because gating the *composite* is not gating each *layer fetch*.
+
+  **Correction:** the AccuracySNES row that breaks under gate-on-opaque is **`C3.12`** ("CGRAM taken
+  in render"), not `C3.04` ("H counter advances") as previously recorded — `C3.04` passes. `C3.12`
+  is the row that asserts the redirect target directly, so its failure means the cart row and
+  MesenCE's model disagree about a backdrop column, and that needs adjudicating before either
+  changes. The real fix tracks the target in the fetch stage, per layer, on non-zero colour indices.
+
 - **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
   different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an
   interlace scene produced identical results, so the standing note that "Mesen2 alternates between
