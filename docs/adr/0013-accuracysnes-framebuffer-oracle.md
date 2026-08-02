@@ -152,8 +152,22 @@ pairwise** — the shape of the answer is:
 - which yields a 256x224 sample again.
 
 So the region size does not change at all. What a hi-res scene needs is a **declared per-scene
-extraction** — a rule for turning whatever the host emits into the canonical 256x224 sample — and
-`Scene` gaining a field that names it. The mainscreen halves of `C5.06`/`C5.07` and
+extraction** — a rule for turning whatever the host emits into the canonical 256x224 sample.
+
+Concretely, so three hosts cannot each invent their own: `Scene` gains an `extract` field of a small
+closed enum, and the value is emitted as a **column in `build/scenes.tsv`** rather than compiled into
+any host. Every host already parses that file to learn the scene list; making the rule travel with
+the scene is what stops the C, Lua and Rust implementations drifting apart, which is the same reason
+`FIRST_ROW` is a declared per-host constant rather than a guess.
+
+| `extract` | meaning |
+|---|---|
+| `Direct` | today's behaviour — the frame is 256 wide, take `SCENE_H` rows from `FIRST_ROW`. Every existing scene, and the default, so no golden moves. |
+| `HiResEven` | the frame is 512 wide: take even columns, and even rows as well on a host whose height also doubled. Yields the same canonical 256x224 sample. |
+
+A host that meets an `extract` value it does not implement must **reject the scene**, exactly as it
+now rejects an out-of-contract geometry — never fall back to `Direct`, which would silently hash the
+left half of a hi-res picture and is the failure this whole supplement exists to prevent. The mainscreen halves of `C5.06`/`C5.07` and
 `C9.01`/`.02`/`.07`/`.08` stay golden-blocked regardless, because rule 4 forbids blessing a golden
 the references disagree about, and on those columns they do.
 
@@ -161,4 +175,6 @@ The prerequisite for any of this was that a host must *reject* an out-of-contrac
 than silently hash it. Both hosts' checks were lower bounds until 2026-08-02 — they caught a frame
 that was too small and passed one that was too large, hashing a diagonal slice (Mesen2's Lua, from a
 256 stride over a 512-wide buffer) or the leftmost 256 columns (the libretro host, which uses the
-real pitch). That is fixed; the loud rejection above is what produced this table.
+real pitch). That is fixed in **PR #320** (`libretro_crossval.c`'s exact `w`/`h` test and
+`mesen_scenes.lua`'s exact `SCENE_BUF_LEN`), which landed before this supplement; the loud rejection
+it added is literally what produced the table above.
