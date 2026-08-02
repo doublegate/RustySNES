@@ -24035,6 +24035,156 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E2.10 — 256-opcode cycle sweep
+; provenance: Documented (fullsnes, SNES APU SPC700 CPU instruction set)
+.proc test_e2_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_120)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_120
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #1905
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the done marker, but not forever — see this proc's doc comment for why the
+    ; shared wait is far too short for this one program.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E01F8       ; the outer pass counter, in the same scratch page E3.06 uses
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    bne @wait
+    ; X wrapped: one full pass of 65536. Count it, and give up after sixteen.
+    sep #$20
+    .a8
+    lda f:$7E01F8
+    inc a
+    sta f:$7E01F8
+    cmp #$10
+    rep #$30
+    .a16
+    .i16
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 280: E2.10 opcodes disagreeing with fullsnes (expect 0)
+    sta f:$7EE430
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 281: E2.10 opcodes measured (expect 231 = 256 - 25)
+    sta f:$7EE432
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 282: E2.10 first disagreeing opcode ($FF = none)
+    sta f:$7EE434
+    ; Liveness first. A driver that fell over after one opcode would report no disagreements,
+    ; and a `0` in slot 280 would then read as a pass — so the count of opcodes actually
+    ; measured is asserted before anything is concluded from the count of failures.
+    lda f:$7E0101
+    and #$00FF
+    cmp #$00E7
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00E8
+    bcc :+
+    jmp @fail1
+  :
+    ; The row itself: every measured opcode's timing agrees with the cycle count fullsnes
+    ; documents for it, to within half a cycle.
+    lda f:$7E0100
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E9.02 — Noise output is bipolar
 ; provenance: Documented (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample)
 .proc test_e9_02
@@ -24063,11 +24213,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_120)
+    lda #.loword(apu_prog_121)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_120
+    lda #^apu_prog_121
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -24210,156 +24360,6 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$08
-    sta f:$7EE010
-    jml test_restore
-.endproc
-
-; E2.10 — 256-opcode cycle sweep
-; provenance: Documented (fullsnes, SNES APU SPC700 CPU instruction set)
-.proc test_e2_10
-    .a16
-    .i16
-    rep #$30
-    .a16
-    .i16
-    phk
-    plb
-    ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_121)
-    sta f:V_APU_SRC
-    sep #$20
-    .a8
-    lda #^apu_prog_121
-    sta f:V_APU_BANK
-    rep #$30
-    .a16
-    .i16
-    lda #1905
-    sta f:V_APU_LEN
-    lda #$0200
-    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
-    lda #$0200
-    sta f:V_APU_ENTRY
-    jsl apu_upload_far
-    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
-    ; release byte there, and a program whose release loop sees it immediately jumps back to
-    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
-    sep #$20
-    .a8
-    lda #$00
-    sta APUIO0
-    ; Wait for the done marker, but not forever — see this proc's doc comment for why the
-    ; shared wait is far too short for this one program.
-    sep #$20
-    .a8
-    lda #$00
-    sta f:$7E01F8       ; the outer pass counter, in the same scratch page E3.06 uses
-    rep #$30
-    .a16
-    .i16
-    ldx #$0000
-@wait:
-    sep #$20
-    .a8
-    lda APUIO0
-    cmp #$5A
-    beq @ran
-    rep #$30
-    .a16
-    .i16
-    inx
-    bne @wait
-    ; X wrapped: one full pass of 65536. Count it, and give up after sixteen.
-    sep #$20
-    .a8
-    lda f:$7E01F8
-    inc a
-    sta f:$7E01F8
-    cmp #$10
-    rep #$30
-    .a16
-    .i16
-    bne @wait
-    jmp @timeout
-@ran:
-    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
-    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
-    sep #$20
-    .a8
-    lda APUIO1
-    sta f:$7E0100
-    lda APUIO2
-    sta f:$7E0101
-    lda APUIO3
-    sta f:$7E0102
-    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
-    lda #$A5
-    sta APUIO0
-    rep #$30
-    .a16
-    .i16
-    lda f:$7E0100
-    and #$00FF
-    ; record slot 280: E2.10 opcodes disagreeing with fullsnes (expect 0)
-    sta f:$7EE430
-    lda f:$7E0101
-    and #$00FF
-    ; record slot 281: E2.10 opcodes measured (expect 231 = 256 - 25)
-    sta f:$7EE432
-    lda f:$7E0102
-    and #$00FF
-    ; record slot 282: E2.10 first disagreeing opcode ($FF = none)
-    sta f:$7EE434
-    ; Liveness first. A driver that fell over after one opcode would report no disagreements,
-    ; and a `0` in slot 280 would then read as a pass — so the count of opcodes actually
-    ; measured is asserted before anything is concluded from the count of failures.
-    lda f:$7E0101
-    and #$00FF
-    cmp #$00E7
-    bcs :+
-    jmp @fail1
-  :
-    cmp #$00E8
-    bcc :+
-    jmp @fail1
-  :
-    ; The row itself: every measured opcode's timing agrees with the cycle count fullsnes
-    ; documents for it, to within half a cycle.
-    lda f:$7E0100
-    and #$00FF
-    cmp #$0000
-    bcs :+
-    jmp @fail2
-  :
-    cmp #$0001
-    bcc :+
-    jmp @fail2
-  :
-    bra @pass
-@timeout:
-    sep #$20
-    .a8
-    lda #$FF
-    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
-    jml test_restore
-@pass:
-    sep #$20
-    .a8
-    lda #$01
-    sta f:$7EE010
-    jml test_restore
-@fail1:
-    ; the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached
-    sep #$20
-    .a8
-    lda #$02
-    sta f:$7EE010
-    jml test_restore
-@fail2:
-    ; at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding
-    sep #$20
-    .a8
-    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -35271,33 +35271,6 @@ apu_prog_119:
     .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F
     .byte $C0, $FF
 apu_prog_120:
-    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
-    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
-    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
-    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
-    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
-    .byte $E0, $C4, $F3, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8
-    .byte $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $3D, $C4, $F2, $E8
-    .byte $01, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5D, $C4, $F2, $E8
-    .byte $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
-    .byte $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $00, $C4, $F2, $E8
-    .byte $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8, $7F, $C4, $F3, $E8
-    .byte $02, $C4, $F2, $E8, $00, $C4, $F3, $E8, $03, $C4, $F2, $E8
-    .byte $10, $C4, $F3, $E8, $04, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8
-    .byte $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8
-    .byte $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8
-    .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8
-    .byte $00, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
-    .byte $00, $FE, $FE, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F5, $E8
-    .byte $6C, $C4, $F2, $E8, $33, $C4, $F3, $8D, $00, $FE, $FE, $E8
-    .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $09, $C4, $F2, $E4
-    .byte $F3, $C4, $F6, $E8, $6C, $C4, $F2, $E8, $E0, $C4, $F3, $E8
-    .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $5A, $C4, $F4, $E4
-    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
-apu_prog_121:
     .byte $5F, $1C, $08, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
     .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
@@ -35457,6 +35430,33 @@ apu_prog_121:
     .byte $C5, $8F, $80, $F1, $E4, $08, $C4, $F5, $E4, $07, $C4, $F6
     .byte $E4, $09, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
     .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_121:
+    .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
+    .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
+    .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
+    .byte $00, $C5, $04, $01, $E8, $00, $C5, $05, $01, $E8, $00, $C5
+    .byte $06, $01, $E8, $00, $C5, $07, $01, $E8, $6C, $C4, $F2, $E8
+    .byte $E0, $C4, $F3, $E8, $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8
+    .byte $5C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $3D, $C4, $F2, $E8
+    .byte $01, $C4, $F3, $E8, $4D, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $2D, $C4, $F2, $E8, $00, $C4, $F3, $E8, $5D, $C4, $F2, $E8
+    .byte $01, $C4, $F3, $E8, $0C, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $1C, $C4, $F2, $E8, $7F, $C4, $F3, $E8, $00, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $01, $C4, $F2, $E8, $7F, $C4, $F3, $E8
+    .byte $02, $C4, $F2, $E8, $00, $C4, $F3, $E8, $03, $C4, $F2, $E8
+    .byte $10, $C4, $F3, $E8, $04, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $06, $C4, $F2, $E8, $00, $C4, $F3, $E8, $07, $C4, $F2, $E8
+    .byte $7F, $C4, $F3, $E8, $05, $C4, $F2, $E8, $00, $C4, $F3, $E8
+    .byte $7C, $C4, $F2, $E8, $00, $C4, $F3, $E8, $4C, $C4, $F2, $E8
+    .byte $01, $C4, $F3, $8D, $00, $FE, $FE, $E8, $4C, $C4, $F2, $E8
+    .byte $00, $C4, $F3, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $8D, $00, $FE, $FE, $8D, $00, $FE, $FE, $8D
+    .byte $00, $FE, $FE, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F5, $E8
+    .byte $6C, $C4, $F2, $E8, $33, $C4, $F3, $8D, $00, $FE, $FE, $E8
+    .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $09, $C4, $F2, $E4
+    .byte $F3, $C4, $F6, $E8, $6C, $C4, $F2, $E8, $E0, $C4, $F3, $E8
+    .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $5A, $C4, $F4, $E4
+    .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -35752,8 +35752,8 @@ _test_entries:
     .faraddr test_b2_07
     .faraddr test_e3_13
     .faraddr test_e2_10i
-    .faraddr test_e9_02
     .faraddr test_e2_10
+    .faraddr test_e9_02
     .faraddr test_f1_01
     .faraddr test_f1_02
     .faraddr test_f1_03
@@ -36100,8 +36100,8 @@ _test_flags:
     .byte $01   ; B2.07
     .byte $01   ; E3.13
     .byte $02   ; E2.10i
-    .byte $01   ; E9.02
     .byte $01   ; E2.10
+    .byte $01   ; E9.02
     .byte $01   ; F1.01
     .byte $01   ; F1.02
     .byte $01   ; F1.03
@@ -36448,8 +36448,8 @@ _test_names:
     .addr @n_b2_07
     .addr @n_e3_13
     .addr @n_e2_10i
-    .addr @n_e9_02
     .addr @n_e2_10
+    .addr @n_e9_02
     .addr @n_f1_01
     .addr @n_f1_02
     .addr @n_f1_03
@@ -37361,12 +37361,12 @@ _test_names:
 @n_e2_10i:
     .byte 20
     .byte "SPC cycle instrument"
-@n_e9_02:
-    .byte 23
-    .byte "Noise output is bipolar"
 @n_e2_10:
     .byte 22
     .byte "256-opcode cycle sweep"
+@n_e9_02:
+    .byte 23
+    .byte "Noise output is bipolar"
 @n_f1_01:
     .byte 21
     .byte "Manual pad read order"
@@ -38135,7 +38135,7 @@ _page_tests:
     .word 226
     .word 227
     .word 283
-    .word 285
+    .word 284
     .word 195
     .word 196
     .word 274
@@ -38157,7 +38157,7 @@ _page_tests:
     .word 246
     .word 247
     .word 248
-    .word 284
+    .word 285
     .word 206
     .word 207
     .word 208

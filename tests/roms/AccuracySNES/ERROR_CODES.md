@@ -2703,6 +2703,15 @@ Provenance: **Documented** (the apparatus for E2.10's 256-opcode sweep, validate
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### E2.10 — 256-opcode cycle sweep
+
+Provenance: **Documented** (fullsnes, SNES APU SPC700 CPU instruction set). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached |
+| 2 | `$04` | at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding |
+
 ### E9.02 — Noise output is bipolar
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample). Kind: scored.
@@ -2713,15 +2722,6 @@ Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the noise ou
 | 2 | `$04` | enabling the noise clock for 48 output samples did not change the output at all, so the LFSR never stepped and the sign test below would be comparing the seed with itself |
 | 3 | `$06` | one step of the noise register did not flip the output's sign, so the register's top bit is not the output's sign bit: the core is emitting the 15-bit value directly, which is the DC-heavy noise the errata's highpass remark exists to exclude |
 | 4 | `$08` | the noise output turned positive after one step but is not the seed shifted right once or twice, so the output is some other function of the register than its top fifteen bits |
-
-### E2.10 — 256-opcode cycle sweep
-
-Provenance: **Documented** (fullsnes, SNES APU SPC700 CPU instruction set). Kind: scored.
-
-| Code | Byte | Meaning |
-|---|---|---|
-| 1 | `$02` | the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached |
-| 2 | `$04` | at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding |
 
 ## Group F
 

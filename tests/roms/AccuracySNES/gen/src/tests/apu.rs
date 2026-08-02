@@ -156,6 +156,12 @@ pub fn all() -> Vec<Test> {
         // +/-6 band. Measured, not guessed -- E3.06 failed on code 1 with this row placed after
         // `e3_09`. Nothing here depends on running late; it simply must not run before E3.06.
         e2_10_instrument(),
+        // Registered HERE rather than appended in `mod.rs`, which is where it first went. Both of
+        // the ordering constraints below apply to it and neither is visible from that file: it must
+        // not run before `E3.06` (it drives timer 2 for some forty frames, harder than anything
+        // else on the cart), and it must not run after `e9_02`. Appending it there satisfied
+        // neither by intent, only by luck.
+        super::apu_sweep::e2_10(),
         // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
         // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
         // nothing can put it back. Anything appended below this line runs after that has happened.

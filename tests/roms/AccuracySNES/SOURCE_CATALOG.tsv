@@ -284,8 +284,8 @@
 281	B2.07	B	Frame rate vs APU clock	Documented	fullsnes and the SNESdev Wiki: NTSC 60.0988 Hz, PAL 50.00698 Hz; the APU's 24.576 MHz crystal is region-independent (ares apuFrequency, snes9x's two APU ratios)	Scored	0x7EF139	B2.07,B2.08
 282	E3.13	E	Regs shadow into RAM	Documented	fullsnes and the SNESdev Wiki: writes to $00F0-$00FF reach the underlying APU RAM as well as the register, which the S-DSP can then read as sample data	Scored	0x7EF13A	E3.13
 283	E2.10i	E	SPC cycle instrument	Documented	the apparatus for E2.10's 256-opcode sweep, validated against NOP = 2, XCN = 5 (also E1.14) and MUL YA = 9 -- each independently derivable from spc700_exec.rs's read/idle sequence	Golden	0x7EF13B	-
-284	E9.02	E	Noise output is bipolar	Documented	fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample	Scored	0x7EF13C	E9.02
-285	E2.10	E	256-opcode cycle sweep	Documented	fullsnes, SNES APU SPC700 CPU instruction set	Scored	0x7EF13D	E2.10
+284	E2.10	E	256-opcode cycle sweep	Documented	fullsnes, SNES APU SPC700 CPU instruction set	Scored	0x7EF13C	E2.10
+285	E9.02	E	Noise output is bipolar	Documented	fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample	Scored	0x7EF13D	E9.02
 286	F1.01	F	Manual pad read order	Documented	fullsnes and the SNESdev Wiki controller protocol: the shift register presents B, Y, Select, Start, Up, Down, Left, Right, A, X, L, R and then four zero bits	Scored	0x7EF13E	F1.01
 287	F1.02	F	Pad reads 17+ are 1	Documented	SNESdev Wiki, controller protocol; fullsnes	Scored	0x7EF13F	F1.02
 288	F1.03	F	Shared $4016 latch	Documented	fullsnes and the SNESdev Wiki controller protocol: bit 0 of $4016 is the shared latch line that parallel-loads both controller ports' shift registers	Scored	0x7EF140	F1.03

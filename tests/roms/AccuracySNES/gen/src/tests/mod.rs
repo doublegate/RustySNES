@@ -28,7 +28,6 @@ pub fn all() -> Vec<Test> {
     v.extend(bus::all());
     v.extend(dma::all());
     v.extend(apu::all());
-    v.push(apu_sweep::e2_10());
     v.extend(input::all());
     v.extend(cart::all());
     v.extend(sweep::all());
