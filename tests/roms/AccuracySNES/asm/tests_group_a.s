@@ -5208,8 +5208,10 @@ CATALOG_IMPL = 1
     .a16
     lda #@nmi
     sta a:V_NMI_VEC
-    ; Counters, and a poisoned first-bad so 'nothing failed' is distinguishable from 'the
-    ; sweep never ran'.
+    ; Counters, and a first-bad of $00 meaning `none`. $00 is BRK, which is in the set this row
+    ; does NOT execute, so it can never be a real answer — where $FF, the obvious poison, is
+    ; SBC long,X and very much can be. `The sweep never ran` is caught by the liveness assertion
+    ; below, not by this slot.
     ; STZ has no long-addressing form, so every clear here is an explicit LDA #$00 + STA.
     sep #$20
     .a8
@@ -5218,7 +5220,6 @@ CATALOG_IMPL = 1
     sta f:$7E6107
     sta f:$7E6108
     sta f:$7E6104
-    lda #$FF
     sta f:$7E6109
     ; Copy both stubs into the fixed WRAM addresses the terminators jump to.
     rep #$30
@@ -5424,18 +5425,19 @@ CATALOG_IMPL = 1
     .a16
     .i16
     plx
-    ; Seed the operand window: the indirect pointers at D+$10 (16-bit) and D+$12 (24-bit) both
-    ; point back into the window, so an indirect load cannot reach MMIO or the sandbox.
+    ; ONE pointer at D+$10, seeded as a 24-BIT $7E:5000. The 16-bit indirects `(dp)`/`(dp),Y`
+    ; read its first two bytes and take the bank from DBR, which the preamble sets to $7E; the
+    ; long indirects `[dp]`/`[dp],Y` read all three. The first draft seeded two pointers and
+    ; gave the long one a bank byte of $00, so `[dp]` reached $00:5000 — unmapped, not WRAM.
     rep #$30
     .a16
     .i16
     lda #$5000
     sta f:$7E0210
-    sta f:$7E0212
     sep #$20
     .a8
     lda #$7E
-    sta f:$7E0214
+    sta f:$7E0212     ; the pointer's BANK byte
     ; Save X across the run — a great many opcodes clobber it — and mark the sandbox active.
     ; Through A: only the accumulator has long addressing, so X cannot be saved directly.
     rep #$30
@@ -5457,6 +5459,12 @@ CATALOG_IMPL = 1
     ; The preamble is the whole of the danger handling. A = 0 makes MVN/MVP a one-byte move;
     ; CLC makes XCE a no-op in native mode; DBR = $7E keeps every absolute operand in WRAM;
     ; D = $0200 puts direct-page operands in the low-WRAM mirror, clear of the runtime's own.
+    ; SP moves into page 1 as well, and that is not cosmetic: the cart's own stack sits at
+    ; $1FFF, so a stack-relative operand of $10 would address $00:200F and a PLA would read
+    ; $00:2000 — both outside WRAM and into the unmapped/MMIO region. The exits restore the
+    ; cart's stack pointer from SAVED_SP, which was captured before this.
+    lda #$01F0
+    tcs
     lda #$0200
     tcd
     sep #$20
@@ -5553,8 +5561,8 @@ CATALOG_IMPL = 1
 @note_bad:
     sep #$20
     .a8
+    ; Record only the FIRST one; $00 means none has been recorded yet.
     lda f:$7E6109
-    cmp #$FF
     bne :+
     lda f:$7E6100
     sta f:$7E6109
@@ -5592,7 +5600,7 @@ CATALOG_IMPL = 1
     sta f:$7EE43A
     lda f:$7E6109
     and #$00FF
-    ; record slot 286: A6.15 first opcode that was not clean ($FF = none)
+    ; record slot 286: A6.15 first opcode that was not clean ($00 = none; $00 is BRK, never run)
     sta f:$7EE43C
     ; Liveness first, and for the same reason E2.10 checks it first: a driver that fell over
     ; early would report no late and no stuck opcodes, and two zeros would read as a pass.
@@ -5634,7 +5642,7 @@ CATALOG_IMPL = 1
     sta f:$7EE010
     jml test_restore
 @fail2:
-    ; at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first
+    ; at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first ($00 there means none)
     sep #$20
     .a8
     lda #$04

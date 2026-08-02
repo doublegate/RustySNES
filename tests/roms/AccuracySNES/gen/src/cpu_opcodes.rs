@@ -22,9 +22,9 @@
 //!
 //! Immediate operands are one byte or two depending on the `m` and `x` flags, so a length table is
 //! meaningless without pinning them. Everything here is the 8-bit-accumulator, 8-bit-index case,
-//! which is what `sweep.rs`'s sandbox establishes with `sep #$30` — and which it had to learn the
-//! hard way, having first set only `sep #$20` and measured `LDX #imm` as a three-byte fetch against
-//! a two-byte expectation.
+//! which is what the sandbox in `tests/cpu_defined.rs` — the consumer of this table — establishes
+//! with `sep #$30`. `sweep.rs` learned the same lesson the hard way, having first set only
+//! `sep #$20` and measured `LDX #imm` as a three-byte fetch against a two-byte expectation.
 
 /// Whether an opcode continues the straight line, and if not, why not.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -460,8 +460,9 @@ mod tests {
         assert_eq!(t[0x42].len(), 2, "WDM is a reserved TWO-byte no-op");
     }
 
-    /// Nine opcodes are four bytes: the eight ALU long forms' two columns less the ones that are
-    /// jumps, plus `JSL` and `JML`. Counting them is a cheap check that the long columns tiled.
+    /// Eighteen opcodes are four bytes: the eight `op long` at `$xF`, the eight `op long,X` at
+    /// `$1F`, plus `JSL` (`$22`) and `JML` (`$5C`). Counting them is a cheap check that the two long
+    /// columns tiled.
     #[test]
     fn the_long_modes_are_where_they_should_be() {
         let four: Vec<_> = table()

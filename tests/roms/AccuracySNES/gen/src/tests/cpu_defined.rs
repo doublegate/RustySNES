@@ -94,6 +94,11 @@ const OVERSHOOT_AT: u16 = 16;
 /// Direct page during a sandbox run: the low-WRAM mirror, clear of the runtime's variables.
 const SANDBOX_DP: u16 = 0x0200;
 
+/// Stack pointer during a sandbox run. In page 1, so a stack-relative operand and anything the
+/// sandbox pulls stay inside WRAM — see the preamble in [`run_sandbox`] for why the cart's own
+/// `$1FFF` is not safe here.
+const SANDBOX_SP: u16 = 0x01F0;
+
 /// The operand window must not overlap the sandbox — an absolute store landing there would rewrite
 /// the very bytes under test. A compile-time assertion rather than a unit test, because both sides
 /// are constants and there is no reason to let a bad pair get as far as a test run.
@@ -241,8 +246,12 @@ pub fn a6_15() -> Test {
     a.l("lda #@nmi");
     a.l("sta a:V_NMI_VEC");
 
-    a.c("Counters, and a poisoned first-bad so 'nothing failed' is distinguishable from 'the");
-    a.c("sweep never ran'.");
+    a.c(
+        "Counters, and a first-bad of $00 meaning `none`. $00 is BRK, which is in the set this row",
+    );
+    a.c("does NOT execute, so it can never be a real answer — where $FF, the obvious poison, is");
+    a.c("SBC long,X and very much can be. `The sweep never ran` is caught by the liveness assertion");
+    a.c("below, not by this slot.");
     a.c("STZ has no long-addressing form, so every clear here is an explicit LDA #$00 + STA.");
     a.l("sep #$20");
     a.l("lda #$00");
@@ -250,7 +259,6 @@ pub fn a6_15() -> Test {
     a.l(&format!("sta f:{}", var::OVER));
     a.l(&format!("sta f:{}", var::STUCK));
     a.l(&format!("sta f:{}", var::ACTIVE));
-    a.l("lda #$FF");
     a.l(&format!("sta f:{}", var::FIRST_BAD));
 
     emit_exit_stubs(&mut a);
@@ -336,11 +344,11 @@ fn watchdog(a: &mut Asm) {
 /// with ca65 filling in the return address, copied into `$7E:AAAA` and `$7E:B8B8` before the sweep.
 ///
 /// Each restores rather than assumes, because the sandbox may have run `PLP`, `PLD`, `PLB` or
-/// `TXS`: `SEP #$30`, `CLD`, `CLC`, put the saved stack pointer back, put the direct page back,
-/// then `JML` into the driver. `DBR` is left alone — the stub runs in bank `$7E` so `PHK`/`PLB`
+/// `TXS`: `SEP #$30`, `CLD`, `CLC`, `REP #$30`, put the saved stack pointer back, put the direct
+/// page back, then `JML` into the driver. `DBR` is left alone — the stub runs in bank `$7E` so `PHK`/`PLB`
 /// there would set the wrong one; the driver does it on arrival instead.
 fn emit_exit_stubs(a: &mut Asm) {
-    for (name, target) in [("ok", "@ok_entry"), ("over", "@over_entry")] {
+    for name in ["ok", "over"] {
         a.d(&format!("a6_15_stub_{name}:"));
         a.d("    .byte $E2,$30            ; SEP #$30");
         a.d("    .byte $D8                ; CLD");
@@ -356,7 +364,6 @@ fn emit_exit_stubs(a: &mut Asm) {
         a.d("    .byte $1B                ; TCS");
         a.d("    .byte $A9,$00,$00        ; LDA #$0000");
         a.d("    .byte $5B                ; TCD — the runtime's variables live at D = 0");
-        let _ = target;
         a.d("    .byte $5C,$00,$00,$00    ; JML — the target is patched in below");
     }
 
@@ -390,9 +397,9 @@ fn emit_exit_stubs(a: &mut Asm) {
 /// Offset of the `JML`'s 16-bit target within a stub.
 const JML_TARGET_AT: u16 = 16;
 
-/// Bytes in one exit stub. Pinned as a constant because the copy loop counts them, and asserted
-/// against the emitted table by a unit test — a miscount would copy a truncated stub into WRAM and
-/// the first opcode to reach it would run off the end.
+/// Bytes in one exit stub. Pinned as a constant because the copy loop counts them, and checked
+/// against the emitted table by `the_stub_length_matches_what_is_emitted` — a miscount
+/// would copy a truncated stub into WRAM and the first opcode to reach it would run off the end.
 const STUB_LEN: u16 = 19;
 
 /// [`var::SAVED_SP`] as a number, for the `LDA long` the stub carries as raw bytes.
@@ -468,15 +475,19 @@ fn build_sandbox(a: &mut Asm) {
 
 /// Seed the window, take the machine into its known state, and jump into the sandbox.
 fn run_sandbox(a: &mut Asm) {
-    a.c("Seed the operand window: the indirect pointers at D+$10 (16-bit) and D+$12 (24-bit) both");
-    a.c("point back into the window, so an indirect load cannot reach MMIO or the sandbox.");
+    a.c("ONE pointer at D+$10, seeded as a 24-BIT $7E:5000. The 16-bit indirects `(dp)`/`(dp),Y`");
+    a.c("read its first two bytes and take the bank from DBR, which the preamble sets to $7E; the");
+    a.c("long indirects `[dp]`/`[dp],Y` read all three. The first draft seeded two pointers and");
+    a.c("gave the long one a bank byte of $00, so `[dp]` reached $00:5000 — unmapped, not WRAM.");
     a.l("rep #$30");
     a.l(&format!("lda #${WINDOW:04X}"));
     a.l(&format!("sta f:$7E{:04X}", SANDBOX_DP + 0x10));
-    a.l(&format!("sta f:$7E{:04X}", SANDBOX_DP + 0x12));
     a.l("sep #$20");
     a.l("lda #$7E");
-    a.l(&format!("sta f:$7E{:04X}", SANDBOX_DP + 0x14));
+    a.l(&format!(
+        "sta f:$7E{:04X}     ; the pointer's BANK byte",
+        SANDBOX_DP + 0x12
+    ));
 
     a.c("Save X across the run — a great many opcodes clobber it — and mark the sandbox active.");
     a.c("Through A: only the accumulator has long addressing, so X cannot be saved directly.");
@@ -495,6 +506,12 @@ fn run_sandbox(a: &mut Asm) {
     a.c("The preamble is the whole of the danger handling. A = 0 makes MVN/MVP a one-byte move;");
     a.c("CLC makes XCE a no-op in native mode; DBR = $7E keeps every absolute operand in WRAM;");
     a.c("D = $0200 puts direct-page operands in the low-WRAM mirror, clear of the runtime's own.");
+    a.c("SP moves into page 1 as well, and that is not cosmetic: the cart's own stack sits at");
+    a.c("$1FFF, so a stack-relative operand of $10 would address $00:200F and a PLA would read");
+    a.c("$00:2000 — both outside WRAM and into the unmapped/MMIO region. The exits restore the");
+    a.c("cart's stack pointer from SAVED_SP, which was captured before this.");
+    a.l(&format!("lda #${SANDBOX_SP:04X}"));
+    a.l("tcs");
     a.l(&format!("lda #${SANDBOX_DP:04X}"));
     a.l("tcd");
     a.l("sep #$20");
@@ -582,8 +599,8 @@ fn exits(a: &mut Asm) {
 
     a.label("note_bad");
     a.l("sep #$20");
+    a.c("Record only the FIRST one; $00 means none has been recorded yet.");
     a.l(&format!("lda f:{}", var::FIRST_BAD));
-    a.l("cmp #$FF");
     a.l("bne :+");
     a.l(&format!("lda f:{}", var::OP));
     a.l(&format!("sta f:{}", var::FIRST_BAD));
@@ -608,7 +625,10 @@ fn report(mut a: Asm) -> Test {
     a.record(285, "A6.15 opcodes that did not return (expect 0)");
     a.l(&format!("lda f:{}", var::FIRST_BAD));
     a.l("and #$00FF");
-    a.record(286, "A6.15 first opcode that was not clean ($FF = none)");
+    a.record(
+        286,
+        "A6.15 first opcode that was not clean ($00 = none; $00 is BRK, never run)",
+    );
 
     a.c("Liveness first, and for the same reason E2.10 checks it first: a driver that fell over");
     a.c("early would report no late and no stuck opcodes, and two zeros would read as a pass.");
@@ -634,7 +654,7 @@ fn report(mut a: Asm) -> Test {
         0,
         "at least one opcode either failed to return or advanced PC by a different number of \
          bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that \
-         never came back, and 286 names the first",
+         never came back, and 286 names the first ($00 there means none)",
     );
 
     a.finish(
@@ -650,10 +670,11 @@ fn report(mut a: Asm) -> Test {
 #[cfg(test)]
 mod tests {
     use super::{
-        BUF, EXECUTED, EXIT_OK, EXIT_OVER, OVERSHOOT_AT, SANDBOX_DP, SCRATCH, SCRATCH_LEN, WINDOW,
-        operand_bytes,
+        BUF, EXECUTED, EXIT_OK, EXIT_OVER, OVERSHOOT_AT, SANDBOX_DP, SCRATCH, SCRATCH_LEN,
+        STUB_LEN, WINDOW, emit_exit_stubs, operand_bytes,
     };
     use crate::cpu_opcodes::{Flow, table};
+    use crate::dsl::Asm;
 
     /// The exits' own address bytes are executed when an opcode overshoots by one or two, so both
     /// halves of both addresses have to be single-byte instructions that touch nothing the sandbox
@@ -682,6 +703,45 @@ mod tests {
         assert!(
             longest + 3 <= OVERSHOOT_AT,
             "the longest opcode is {longest} bytes and the overshoot terminator is at +{OVERSHOOT_AT}"
+        );
+    }
+
+    /// [`super::STUB_LEN`] is what the copy loop counts, so it has to be what the table emits. A
+    /// miscount copies a truncated stub into WRAM and the first opcode to reach it runs off the end.
+    #[test]
+    fn the_stub_length_matches_what_is_emitted() {
+        let mut a = Asm::new();
+        emit_exit_stubs(&mut a);
+        // Two stubs, and every `.byte` line in the data segment belongs to one of them.
+        let emitted: usize = a
+            .data_lines()
+            .iter()
+            .filter(|l| l.trim_start().starts_with(".byte"))
+            .map(|l| l.split(';').next().unwrap_or(l).matches('$').count())
+            .sum();
+        assert_eq!(
+            emitted,
+            2 * usize::from(STUB_LEN),
+            "the table emits {emitted} bytes for two stubs of {STUB_LEN}"
+        );
+    }
+
+    /// The "nothing failed" sentinel is an opcode index like any other, so it has to be one the row
+    /// never executes. `$00` is `BRK`, which is in the not-executed set.
+    ///
+    /// `$FF` was the first choice and is **wrong**: `$FF` is `SBC long,X`, which the row does
+    /// execute, so a genuine failure there would have been reported as `none`.
+    #[test]
+    fn the_no_failure_sentinel_can_never_be_a_real_answer() {
+        let t = table();
+        assert!(
+            matches!(t[0x00].flow, Flow::Leaves(_)),
+            "$00 ({}) is executed, so it cannot double as the `none` sentinel",
+            t[0x00].name
+        );
+        assert!(
+            !matches!(t[0xFF].flow, Flow::Leaves(_)),
+            "$FF is no longer executed — the comment explaining why it is a bad sentinel is stale"
         );
     }
 

@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   With the fix the injections are exact where they had been approximate: the jam injection reported
   two stuck opcodes and 63 clean ones before, and reports one and 240 now.
 
-- **`E2.10` — the full 256-opcode SPC700 cycle sweep, and the coverage number moves to 360 of 443.**
+- **`E2.10` — the full 256-opcode SPC700 cycle sweep.**
   The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
   and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies
   no expected values; it reads back three bytes — opcodes measured, opcodes disagreeing, and the

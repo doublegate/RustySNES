@@ -683,7 +683,7 @@ Provenance: **Documented** (WDC W65C816S datasheet, Table 5-4 opcode matrix). Ki
 | Code | Byte | Meaning |
 |---|---|---|
 | 1 | `$02` | the sweep did not execute 241 opcodes cleanly — it stopped early, or it covered a different set than the 15 documented control-transfer exclusions. Slots 283-286 hold the three counts and the first opcode that was not clean |
-| 2 | `$04` | at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first |
+| 2 | `$04` | at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first ($00 there means none) |
 
 ### A5.S01 — Sweep: CLC
 

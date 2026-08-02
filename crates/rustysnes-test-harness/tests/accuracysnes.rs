@@ -635,7 +635,7 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 29] = [
     ),
     (284, "A6.15 opcodes returning LATE (expect 0)"),
     (285, "A6.15 opcodes that did not return (expect 0)"),
-    (286, "A6.15 first opcode that was not clean ($FF = none)"),
+    (286, "A6.15 first opcode that was not clean ($00 = none)"),
     (280, "E2.10 opcodes disagreeing with fullsnes (expect 0)"),
     (281, "E2.10 opcodes measured (expect 231)"),
     (282, "E2.10 first disagreeing opcode ($FF = none)"),

@@ -193,6 +193,16 @@ impl Asm {
     /// For read-only blobs that the test refers to by address instead of executing in place. Bank
     /// $00 holds the runtime, the font, every test body and the catalog, and it is finite; a
     /// several-hundred-byte SPC700 image per test is the one thing here big enough to matter.
+    /// The lines emitted into the out-of-bank data segment so far.
+    ///
+    /// Exists so a test can check what a data emitter actually produced — `A6.15`'s exit stubs are
+    /// raw `.byte` tables whose length a copy loop counts, and the two must not drift.
+    #[cfg(test)]
+    #[must_use]
+    pub fn data_lines(&self) -> &[String] {
+        &self.data
+    }
+
     pub fn d(&mut self, line: &str) -> &mut Self {
         self.data.push(line.to_string());
         self
