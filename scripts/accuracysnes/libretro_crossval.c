@@ -186,6 +186,12 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
      * measured 2026-08-02, emits 512x224 and does not). */
     const unsigned want_w = (want_extract == EXTRACT_HIRES_EVEN) ? SCENE_W * 2u : SCENE_W;
     const unsigned xstep  = (want_extract == EXTRACT_HIRES_EVEN) ? 2u : 1u;
+    /* Column 0 is EXCLUDED under `hires-even`, so the sample is 255 columns wide there rather than
+     * 256. It is the first hi-res pixel of the line and the references genuinely disagree about it
+     * -- RustySNES and ares emit black, snes9x and Mesen2 the backdrop, and ares' own source says
+     * "exact value initializations are not confirmed on hardware". Hashing it would make every
+     * hi-res scene permanently unblessable under ADR 0013 rule 4 over one undefined pixel. */
+    const unsigned first_col = (want_extract == EXTRACT_HIRES_EVEN) ? 1u : 0u;
     const unsigned ystep  = (d && h >= (SCENE_H + FIRST_ROW) * 2u) ? 2u : 1u;
     /* The warn condition is the DROP condition, character for character. They disagreed in the
      * first draft (`<` here, `!=` below), so a frame taller than the contract was dropped without a
@@ -223,13 +229,16 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
     uint64_t hash = 0xcbf29ce484222325ull;
     for (unsigned y = 0; y < SCENE_H; y++) {
         const uint8_t *row = (const uint8_t *)d + (size_t)(y + FIRST_ROW) * ystep * p;
-        for (unsigned x = 0; x < SCENE_W; x++) {
+        /* Loop the SAMPLE index and derive the source column, matching the Rust and Lua hosts
+         * statement for statement -- cross-host drift in this loop is the one thing a golden
+         * cannot detect. */
+        for (unsigned x = 0; x < SCENE_W - first_col; x++) {
             unsigned r, g, b;
             if (pixel_format == FMT_XRGB8888) {
-                uint32_t v = ((const uint32_t *)row)[x * xstep];
+                uint32_t v = ((const uint32_t *)row)[(x + first_col) * xstep];
                 r = (v >> 19) & 0x1F; g = (v >> 11) & 0x1F; b = (v >> 3) & 0x1F;
             } else {
-                uint16_t v = ((const uint16_t *)row)[x * xstep];
+                uint16_t v = ((const uint16_t *)row)[(x + first_col) * xstep];
                 if (pixel_format == FMT_RGB565) {
                     /* Green is 6 bits here because the core widened a 5-bit channel; dropping the
                      * low bit recovers the original rather than inventing precision. */

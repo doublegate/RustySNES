@@ -142,6 +142,12 @@ local function hashFrame(id)
     local hires = EXTRACT[id] == "hires-even"
     local width = hires and (SCENE_W * 2) or SCENE_W
     local xstep = hires and 2 or 1
+    -- Column 0 is EXCLUDED under `hires-even`, so the sample is 255 columns wide there rather than
+    -- 256. It is the first hi-res pixel of the line and the references genuinely disagree about it:
+    -- RustySNES and ares emit black, snes9x and Mesen2 the backdrop, and ares' own source says
+    -- "exact value initializations are not confirmed on hardware". Hashing it would make every
+    -- hi-res scene permanently unblessable under ADR 0013 rule 4 over one undefined pixel.
+    local firstCol = hires and 1 or 0
     local ystep = hires and 2 or 1
     local wantLen = hires and (SCENE_BUF_LEN * 4) or SCENE_BUF_LEN
     if #buf ~= wantLen then
@@ -153,8 +159,10 @@ local function hashFrame(id)
     local px = {}
     for y = 0, SCENE_H - 1 do
         local row = (y + FIRST_ROW) * ystep * width
-        for x = 0, SCENE_W - 1 do
-            local v = buf[row + x * xstep + 1]
+        -- Loop the SAMPLE index and derive the source column, matching the C and Rust hosts
+        -- statement for statement; cross-host drift here is the one thing a golden cannot detect.
+        for x = 0, SCENE_W - 1 - firstCol do
+            local v = buf[row + (x + firstCol) * xstep + 1]
             -- Mesen hands back 24-bit RGB; the SNES channels are 5-bit widened to 8, so the top
             -- five bits recover the original rather than inventing precision.
             local r = (v >> 19) & 0x1F

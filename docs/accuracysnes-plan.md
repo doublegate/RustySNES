@@ -14,8 +14,8 @@ AccuracySNES closed ticket **T-04**. The follow-on tickets minted here are **T-0
 | | |
 |---|---|
 | Tests | **343** (scoring + golden vectors + region SKIP per image) — *tests, not assertions; see the note below the table* |
-| Assertion coverage | **358 of 443** dossier assertions — **302 on-cart** + **54 rendered scenes** + **2 host-side**, kept as separate columns in descending order of what the evidence is worth (`docs/accuracysnes-coverage.md`) |
-| Rendered scenes | **54** declared, all blessed and matching on both scene hosts (`docs/adr/0013`); **54** dossier rows have a scene as their only cover |
+| Assertion coverage | **359 of 443** dossier assertions — **302 on-cart** + **55 rendered scenes** + **2 host-side**, kept as separate columns in descending order of what the evidence is worth (`docs/accuracysnes-coverage.md`) |
+| Rendered scenes | **55** declared, all blessed and matching on both scene hosts (`docs/adr/0013`); **55** dossier rows have a scene as their only cover. One uses the `hires-even` extraction (`C5.15`, Mode 5) |
 | Pass rate | **100.00%** on-cart, floor enforced at 1.00 by `tests/accuracysnes.rs` |
 | Cross-validated | **Three references** as of `v1.29.0`. Mesen2 agrees on every test but `F1.03`, which clocks both ports out of one latch and so needs the port-2 input its Lua runner cannot drive; snes9x has 14 recorded divergences and **ares** 3, each with a citation in `scripts/accuracysnes/crossval.sh`. A headless **MesenCE** is separately the per-dot compositor's blueprint + exact-frame oracle. All images. |
 | Groups shipped | **A** (65C816) · **B** (5A22) · **C** (PPU, on-cart and rendered) · **D** (DMA/HDMA) · **E** (SPC700 + S-DSP) · **F** (controller ports) · **G** (cartridge/memory map) — all seven, all partial |
