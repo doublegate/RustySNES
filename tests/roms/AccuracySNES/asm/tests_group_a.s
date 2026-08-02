@@ -5154,6 +5154,502 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; A6.15 — all 256 opcodes defined
+; provenance: Documented (WDC W65C816S datasheet, Table 5-4 opcode matrix)
+.proc test_a6_15
+    .a16
+    .i16
+    ; The two exit stubs and the NMI watchdog are written into WRAM before the sweep starts.
+    bra @body
+@nmi:
+    ; Long addressing throughout: the sandbox may have left DBR and D anywhere, and this
+    ; handler runs before anything has put them back.
+    ; A is preserved. RTI restores P and PC but not the accumulator, and an interrupt that
+    ; silently rewrites A is not transparent to the thing it interrupted.
+    rep #$30
+    .a16
+    .i16
+    pha
+    sep #$20
+    .a8
+    .a8
+    ; LONG addressing, and that is the whole bug this handler shipped with. It runs with the
+    ; SANDBOX's DBR, which is $7E — so `lda $4210` reads $7E:4210, a WRAM byte, and RDNMI is
+    ; never acknowledged. Every other host happened not to land an NMI where it showed; ares
+    ; did, and the row read as a PLA divergence that was nothing of the kind.
+    lda f:$004210    ; acknowledge RDNMI, DBR or no DBR
+    lda f:$7E6104
+    beq @nmi_out      ; no sandbox in flight — nothing to rescue
+    lda f:$7E6105
+    inc a
+    sta f:$7E6105
+    cmp #$02
+    bcc @nmi_out      ; first hit: a healthy sandbox can be caught once by chance
+    ; Second hit on the same opcode. It is not coming back — abandon the interrupt frame
+    ; entirely and re-enter the driver at the stuck exit.
+    jml @stuck_entry
+@nmi_out:
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    pla
+    rti
+@body:
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Install the NMI handler and arm VBlank NMI. NMI ignores the I flag, so an opcode inside
+    ; the sandbox that runs SEI cannot disarm the thing that rescues it.
+    rep #$20
+    .a16
+    lda #@nmi
+    sta a:V_NMI_VEC
+    ; Counters, and a first-bad of $00 meaning `none`. $00 is BRK, which is in the set this row
+    ; does NOT execute, so it can never be a real answer — where $FF, the obvious poison, is
+    ; SBC long,X and very much can be. `The sweep never ran` is caught by the liveness assertion
+    ; below, not by this slot.
+    ; STZ has no long-addressing form, so every clear here is an explicit LDA #$00 + STA.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E6106
+    sta f:$7E6107
+    sta f:$7E6108
+    sta f:$7E6104
+    sta f:$7E6109
+    ; Copy both stubs into the fixed WRAM addresses the terminators jump to.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@copy_ok:
+    sep #$20
+    .a8
+    lda f:a6_15_stub_ok,x
+    sta f:$7EAAAA,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0013
+    bne @copy_ok
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@copy_over:
+    sep #$20
+    .a8
+    lda f:a6_15_stub_over,x
+    sta f:$7EB8B8,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0013
+    bne @copy_over
+    ; Patch each JML's target. It cannot be assembled into the .byte table: that table lives in
+    ; the data segment, where this proc's cheap-local labels are out of scope.
+    sep #$20
+    .a8
+    lda #.lobyte(@ok_entry)
+    sta f:$7EAABA
+    lda #.hibyte(@ok_entry)
+    sta f:$7EAABB
+    sep #$20
+    .a8
+    lda #.lobyte(@over_entry)
+    sta f:$7EB8C8
+    lda #.hibyte(@over_entry)
+    sta f:$7EB8C9
+    sep #$20
+    .a8
+    lda #$80
+    sta $4200         ; VBlank NMI on — the watchdog's clock
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@oploop:
+    ; len = a6_15_len[X]. Zero means the opcode leaves the sandbox and is not executed.
+    sep #$20
+    .a8
+    lda f:a6_15_len,x
+    sta f:$7E6101
+    ; Inverted over a JMP: the body between here and @next is far beyond a branch's reach.
+    bne :+
+    jmp @next
+    :
+    rep #$20
+    .a16
+    txa
+    sep #$20
+    .a8
+    sta f:$7E6100
+    ; Copy the four encoded bytes; only the first `len` of them are reached, and the rest are
+    ; overwritten by the terminator.
+    rep #$30
+    .a16
+    .i16
+    phx
+    rep #$30
+    .a16
+    .i16
+    plx
+    phx
+    sep #$20
+    .a8
+    lda f:a6_15_b0,x
+    rep #$30
+    .a16
+    .i16
+    ldx #$6000
+    sep #$20
+    .a8
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    plx
+    phx
+    sep #$20
+    .a8
+    lda f:a6_15_b1,x
+    rep #$30
+    .a16
+    .i16
+    ldx #$6001
+    sep #$20
+    .a8
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    plx
+    phx
+    sep #$20
+    .a8
+    lda f:a6_15_b2,x
+    rep #$30
+    .a16
+    .i16
+    ldx #$6002
+    sep #$20
+    .a8
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    plx
+    phx
+    sep #$20
+    .a8
+    lda f:a6_15_b3,x
+    rep #$30
+    .a16
+    .i16
+    ldx #$6003
+    sep #$20
+    .a8
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    plx
+    ; The clean terminator at BUF+len, then NOP fill, then the overshoot terminator.
+    rep #$30
+    .a16
+    .i16
+    phx
+    sep #$20
+    .a8
+    lda f:$7E6101
+    rep #$30
+    .a16
+    .i16
+    and #$00FF
+    clc
+    adc #$6000
+    tax
+    sep #$20
+    .a8
+    lda #$4C
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    sep #$20
+    .a8
+    lda #$AA
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    sep #$20
+    .a8
+    lda #$AA
+    sta f:$7E0000,x
+    ; Fill from there to the overshoot terminator with NOP, then write it.
+    rep #$30
+    .a16
+    .i16
+    inx
+@fill:
+    cpx #$6010
+    bcs @filled
+    sep #$20
+    .a8
+    lda #$EA
+    sta f:$7E0000,x
+    rep #$30
+    .a16
+    .i16
+    inx
+    bra @fill
+@filled:
+    sep #$20
+    .a8
+    lda #$4C
+    sta f:$7E6010
+    lda #$B8
+    sta f:$7E6011
+    lda #$B8
+    sta f:$7E6012
+    rep #$30
+    .a16
+    .i16
+    plx
+    ; ONE pointer at D+$10, seeded as a 24-BIT $7E:5000. The 16-bit indirects `(dp)`/`(dp),Y`
+    ; read its first two bytes and take the bank from DBR, which the preamble sets to $7E; the
+    ; long indirects `[dp]`/`[dp],Y` read all three. The first draft seeded two pointers and
+    ; gave the long one a bank byte of $00, so `[dp]` reached $00:5000 — unmapped, not WRAM.
+    rep #$30
+    .a16
+    .i16
+    lda #$5000
+    sta f:$7E0210
+    sep #$20
+    .a8
+    lda #$7E
+    sta f:$7E0212     ; the pointer's BANK byte
+    ; Save X across the run — a great many opcodes clobber it — and mark the sandbox active.
+    ; Through A: only the accumulator has long addressing, so X cannot be saved directly.
+    rep #$30
+    .a16
+    .i16
+    txa
+    sta f:$7E610A
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7E6104
+    lda #$00
+    sta f:$7E6105
+    rep #$30
+    .a16
+    .i16
+    tsc
+    sta f:$7E6102
+    ; The preamble is the whole of the danger handling. A = 0 makes MVN/MVP a one-byte move;
+    ; CLC makes XCE a no-op in native mode; DBR = $7E keeps every absolute operand in WRAM;
+    ; D = $0200 puts direct-page operands in the low-WRAM mirror, clear of the runtime's own.
+    ; SP moves into page 1 as well, and that is not cosmetic: the cart's own stack sits at
+    ; $1FFF, so a stack-relative operand of $10 would address $00:200F and a PLA would read
+    ; $00:2000 — both outside WRAM and into the unmapped/MMIO region. The exits restore the
+    ; cart's stack pointer from SAVED_SP, which was captured before this.
+    lda #$01F0
+    tcs
+    lda #$0200
+    tcd
+    sep #$20
+    .a8
+    lda #$7E
+    pha
+    plb
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    ldx #$0000
+    ldy #$0000
+    sep #$30
+    .a8
+    .i8
+    .a8
+    .i8
+    cld
+    clc
+    jml $7E6000
+@ok_entry:
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E6104
+    lda f:$7E6106
+    inc a
+    sta f:$7E6106
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E610A
+    tax
+    jmp @next
+@over_entry:
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E6104
+    lda f:$7E6107
+    inc a
+    sta f:$7E6107
+    jsr @note_bad
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E610A
+    tax
+    jmp @next
+@stuck_entry:
+    ; Entered from the NMI handler, so the stack still holds an interrupt frame. Rebuilding
+    ; the machine from saved state rather than returning is the point.
+    rep #$30
+    .a16
+    .i16
+    .a16
+    .i16
+    lda f:$7E6102
+    tcs
+    lda #$0000
+    tcd
+    phk
+    plb
+    sep #$20
+    .a8
+    cld
+    lda #$00
+    sta f:$7E6104
+    lda f:$7E6108
+    inc a
+    sta f:$7E6108
+    jsr @note_bad
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E610A
+    tax
+    jmp @next
+@note_bad:
+    sep #$20
+    .a8
+    ; Record only the FIRST one; $00 means none has been recorded yet.
+    lda f:$7E6109
+    bne :+
+    lda f:$7E6100
+    sta f:$7E6109
+    :
+    rts
+@next:
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$0100
+    beq :+
+    jmp @oploop
+    :
+    ; Disarm before asserting: a failure exits immediately and must not leave NMI armed for
+    ; whatever runs next.
+    sep #$20
+    .a8
+    stz $4200
+    lda $4210         ; clear any pending RDNMI latch
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E6106
+    and #$00FF
+    ; record slot 283: A6.15 opcodes that returned at their documented length
+    sta f:$7EE436
+    lda f:$7E6107
+    and #$00FF
+    ; record slot 284: A6.15 opcodes that returned LATE (expect 0)
+    sta f:$7EE438
+    lda f:$7E6108
+    and #$00FF
+    ; record slot 285: A6.15 opcodes that did not return (expect 0)
+    sta f:$7EE43A
+    lda f:$7E6109
+    and #$00FF
+    ; record slot 286: A6.15 first opcode that was not clean ($00 = none; $00 is BRK, never run)
+    sta f:$7EE43C
+    ; Liveness first, and for the same reason E2.10 checks it first: a driver that fell over
+    ; early would report no late and no stuck opcodes, and two zeros would read as a pass.
+    lda f:$7E6106
+    and #$00FF
+    cmp #$00F1
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00F2
+    bcc :+
+    jmp @fail1
+  :
+    ; The row: nothing hung, and nothing consumed a different number of bytes than the WDC
+    ; table documents. STP is excluded by name and is the only opcode this cart cannot run.
+    lda f:$7E6107
+    and #$00FF
+    clc
+    adc f:$7E6108
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail2
+  :
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sweep did not execute 241 opcodes cleanly — it stopped early, or it covered a different set than the 15 documented control-transfer exclusions. Slots 283-286 hold the three counts and the first opcode that was not clean
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; at least one opcode either failed to return or advanced PC by a different number of bytes than Table 5-4 documents for it. Slot 284 counts the late ones, 285 the ones that never came back, and 286 names the first ($00 there means none)
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; B1.01 — MEMSEL selects FastROM
 ; provenance: Documented (SNESdev Wiki, Memory map / timing; fullsnes)
 .proc test_b1_01
@@ -32998,6 +33494,111 @@ CATALOG_IMPL = 1
 .endproc
 
 .segment "APUDATA"
+a6_15_len:
+    .byte $00,$02,$00,$02,$02,$02,$02,$02,$01,$02,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$01,$03,$03,$03,$04
+    .byte $00,$02,$00,$02,$02,$02,$02,$02,$01,$02,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$01,$03,$03,$03,$04
+    .byte $00,$02,$02,$02,$03,$02,$02,$02,$01,$02,$01,$01,$00,$03,$03,$04
+    .byte $02,$02,$02,$02,$03,$02,$02,$02,$01,$03,$01,$01,$00,$03,$03,$04
+    .byte $00,$02,$03,$02,$02,$02,$02,$02,$01,$02,$01,$00,$00,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$01,$00,$03,$03,$04
+    .byte $02,$02,$03,$02,$02,$02,$02,$02,$01,$02,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$02,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$02,$01,$00,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$03,$01,$00,$00,$03,$03,$04
+    .byte $02,$02,$02,$02,$02,$02,$02,$02,$01,$02,$01,$01,$03,$03,$03,$04
+    .byte $02,$02,$02,$02,$03,$02,$02,$02,$01,$03,$01,$01,$00,$03,$03,$04
+a6_15_b0:
+    .byte $00,$01,$02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$0D,$0E,$0F
+    .byte $10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$1A,$1B,$1C,$1D,$1E,$1F
+    .byte $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$2A,$2B,$2C,$2D,$2E,$2F
+    .byte $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$3A,$3B,$3C,$3D,$3E,$3F
+    .byte $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$4A,$4B,$4C,$4D,$4E,$4F
+    .byte $50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$5A,$5B,$5C,$5D,$5E,$5F
+    .byte $60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$6A,$6B,$6C,$6D,$6E,$6F
+    .byte $70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$7A,$7B,$7C,$7D,$7E,$7F
+    .byte $80,$81,$82,$83,$84,$85,$86,$87,$88,$89,$8A,$8B,$8C,$8D,$8E,$8F
+    .byte $90,$91,$92,$93,$94,$95,$96,$97,$98,$99,$9A,$9B,$9C,$9D,$9E,$9F
+    .byte $A0,$A1,$A2,$A3,$A4,$A5,$A6,$A7,$A8,$A9,$AA,$AB,$AC,$AD,$AE,$AF
+    .byte $B0,$B1,$B2,$B3,$B4,$B5,$B6,$B7,$B8,$B9,$BA,$BB,$BC,$BD,$BE,$BF
+    .byte $C0,$C1,$C2,$C3,$C4,$C5,$C6,$C7,$C8,$C9,$CA,$CB,$CC,$CD,$CE,$CF
+    .byte $D0,$D1,$D2,$D3,$D4,$D5,$D6,$D7,$D8,$D9,$DA,$DB,$DC,$DD,$DE,$DF
+    .byte $E0,$E1,$E2,$E3,$E4,$E5,$E6,$E7,$E8,$E9,$EA,$EB,$EC,$ED,$EE,$EF
+    .byte $F0,$F1,$F2,$F3,$F4,$F5,$F6,$F7,$F8,$F9,$FA,$FB,$FC,$FD,$FE,$FF
+a6_15_b1:
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $EA,$10,$00,$10,$7E,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$7E,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $EA,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$00,$10,$10,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+    .byte $00,$10,$10,$10,$00,$10,$10,$10,$EA,$00,$EA,$EA,$00,$00,$00,$00
+a6_15_b2:
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $50,$EA,$50,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$7E,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$7E,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$00,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$00,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$50,$50,$50,$50
+    .byte $EA,$EA,$EA,$EA,$50,$EA,$EA,$EA,$EA,$50,$EA,$EA,$50,$50,$50,$50
+a6_15_b3:
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$7E,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+    .byte $EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$EA,$7E
+a6_15_stub_ok:
+    .byte $E2,$30            ; SEP #$30
+    .byte $D8                ; CLD
+    .byte $18                ; CLC
+    .byte $C2,$30            ; REP #$30
+    .byte $AF,$02,$61,$7E      ; LDA $7E6102 — the saved stack pointer
+    .byte $1B                ; TCS
+    .byte $A9,$00,$00        ; LDA #$0000
+    .byte $5B                ; TCD — the runtime's variables live at D = 0
+    .byte $5C,$00,$00,$00    ; JML — the target is patched in below
+a6_15_stub_over:
+    .byte $E2,$30            ; SEP #$30
+    .byte $D8                ; CLD
+    .byte $18                ; CLC
+    .byte $C2,$30            ; REP #$30
+    .byte $AF,$02,$61,$7E      ; LDA $7E6102 — the saved stack pointer
+    .byte $1B                ; TCS
+    .byte $A9,$00,$00        ; LDA #$0000
+    .byte $5B                ; TCD — the runtime's variables live at D = 0
+    .byte $5C,$00,$00,$00    ; JML — the target is patched in below
 apu_prog_0:
     .byte $CD, $EF, $BD, $E5, $00, $80, $C4, $F5, $E5, $20, $80, $C4
     .byte $F6, $E5, $40, $80, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4
@@ -35430,6 +36031,7 @@ apu_prog_120:
     .byte $C5, $8F, $80, $F1, $E4, $08, $C4, $F5, $E4, $07, $C4, $F6
     .byte $E4, $09, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
     .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+.segment "APUDATA2"
 apu_prog_121:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
@@ -35464,7 +36066,7 @@ apu_prog_121:
 .export _test_flags
 
 _test_count:
-    .word 345
+    .word 346
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -35549,6 +36151,7 @@ _test_entries:
     .faraddr test_a6_13
     .faraddr test_a6_14
     .faraddr test_a2_13
+    .faraddr test_a6_15
     .faraddr test_c1_01
     .faraddr test_c1_02
     .faraddr test_c1_03
@@ -35897,6 +36500,7 @@ _test_flags:
     .byte $01   ; A6.13
     .byte $01   ; A6.14
     .byte $02   ; A2.13
+    .byte $01   ; A6.15
     .byte $01   ; C1.01
     .byte $01   ; C1.02
     .byte $01   ; C1.03
@@ -36245,6 +36849,7 @@ _test_names:
     .addr @n_a6_13
     .addr @n_a6_14
     .addr @n_a2_13
+    .addr @n_a6_15
     .addr @n_c1_01
     .addr @n_c1_02
     .addr @n_c1_03
@@ -36752,6 +37357,9 @@ _test_names:
 @n_a2_13:
     .byte 20
     .byte "16-bit dp page cross"
+@n_a6_15:
+    .byte 23
+    .byte "all 256 opcodes defined"
 @n_c1_01:
     .byte 19
     .byte "OAM word write/read"
@@ -37776,7 +38384,7 @@ _page_len:
     .byte 10
     .byte 7
     .byte 10
-    .byte 4
+    .byte 5
     .byte 5
     .byte 7
     .byte 4
@@ -37831,47 +38439,47 @@ _page_off:
     .word 79
     .word 86
     .word 96
-    .word 100
-    .word 105
-    .word 112
-    .word 116
-    .word 125
-    .word 133
-    .word 143
-    .word 153
+    .word 101
+    .word 106
+    .word 113
+    .word 117
+    .word 126
+    .word 134
+    .word 144
     .word 154
-    .word 157
-    .word 160
-    .word 164
-    .word 166
-    .word 170
-    .word 176
-    .word 186
-    .word 189
-    .word 194
+    .word 155
+    .word 158
+    .word 161
+    .word 165
+    .word 167
+    .word 171
+    .word 177
+    .word 187
+    .word 190
     .word 195
-    .word 205
-    .word 210
-    .word 216
-    .word 223
-    .word 233
-    .word 237
-    .word 247
-    .word 251
-    .word 261
+    .word 196
+    .word 206
+    .word 211
+    .word 217
+    .word 224
+    .word 234
+    .word 238
+    .word 248
+    .word 252
     .word 262
-    .word 268
-    .word 270
-    .word 280
-    .word 284
-    .word 294
-    .word 297
-    .word 307
-    .word 314
-    .word 321
-    .word 331
-    .word 334
-    .word 344
+    .word 263
+    .word 269
+    .word 271
+    .word 281
+    .word 285
+    .word 295
+    .word 298
+    .word 308
+    .word 315
+    .word 322
+    .word 332
+    .word 335
+    .word 345
 
 _page_tests:
     .word 0
@@ -37925,7 +38533,6 @@ _page_tests:
     .word 70
     .word 71
     .word 72
-    .word 310
     .word 311
     .word 312
     .word 313
@@ -37960,6 +38567,7 @@ _page_tests:
     .word 342
     .word 343
     .word 344
+    .word 345
     .word 30
     .word 31
     .word 32
@@ -37974,6 +38582,7 @@ _page_tests:
     .word 75
     .word 78
     .word 79
+    .word 81
     .word 38
     .word 39
     .word 40
@@ -37990,34 +38599,33 @@ _page_tests:
     .word 46
     .word 51
     .word 53
-    .word 81
     .word 82
     .word 83
     .word 84
     .word 85
     .word 86
     .word 87
-    .word 123
-    .word 125
     .word 88
-    .word 115
+    .word 124
+    .word 126
+    .word 89
     .word 116
     .word 117
     .word 118
     .word 119
     .word 120
     .word 121
-    .word 89
+    .word 122
     .word 90
     .word 91
     .word 92
     .word 93
     .word 94
     .word 95
-    .word 122
-    .word 124
-    .word 128
     .word 96
+    .word 123
+    .word 125
+    .word 129
     .word 97
     .word 98
     .word 99
@@ -38026,9 +38634,9 @@ _page_tests:
     .word 102
     .word 103
     .word 104
-    .word 129
-    .word 130
     .word 105
+    .word 130
+    .word 131
     .word 106
     .word 107
     .word 108
@@ -38038,38 +38646,38 @@ _page_tests:
     .word 112
     .word 113
     .word 114
-    .word 126
+    .word 115
     .word 127
-    .word 131
+    .word 128
     .word 132
-    .word 148
-    .word 149
     .word 133
-    .word 135
+    .word 149
     .word 150
-    .word 151
-    .word 153
-    .word 281
     .word 134
     .word 136
+    .word 151
+    .word 152
+    .word 154
+    .word 282
+    .word 135
     .word 137
     .word 138
     .word 139
     .word 140
     .word 141
     .word 142
-    .word 152
-    .word 154
-    .word 155
-    .word 157
-    .word 158
     .word 143
+    .word 153
+    .word 155
+    .word 156
+    .word 158
+    .word 159
     .word 144
     .word 145
     .word 146
     .word 147
-    .word 156
-    .word 159
+    .word 148
+    .word 157
     .word 160
     .word 161
     .word 162
@@ -38078,26 +38686,26 @@ _page_tests:
     .word 165
     .word 166
     .word 167
-    .word 172
+    .word 168
     .word 173
     .word 174
     .word 175
     .word 176
     .word 177
-    .word 168
+    .word 178
     .word 169
     .word 170
     .word 171
-    .word 178
+    .word 172
     .word 179
     .word 180
-    .word 228
+    .word 181
     .word 229
     .word 230
     .word 231
     .word 232
     .word 233
-    .word 181
+    .word 234
     .word 182
     .word 183
     .word 184
@@ -38105,49 +38713,49 @@ _page_tests:
     .word 186
     .word 187
     .word 188
-    .word 199
-    .word 213
+    .word 189
+    .word 200
     .word 214
-    .word 221
+    .word 215
     .word 222
     .word 223
-    .word 189
+    .word 224
     .word 190
     .word 191
     .word 192
-    .word 201
+    .word 193
     .word 202
-    .word 217
+    .word 203
     .word 218
     .word 219
     .word 220
-    .word 278
+    .word 221
     .word 279
     .word 280
-    .word 282
-    .word 193
+    .word 281
+    .word 283
     .word 194
-    .word 200
-    .word 215
+    .word 195
+    .word 201
     .word 216
-    .word 224
+    .word 217
     .word 225
     .word 226
     .word 227
-    .word 283
+    .word 228
     .word 284
-    .word 195
+    .word 285
     .word 196
-    .word 274
+    .word 197
     .word 275
     .word 276
     .word 277
-    .word 197
+    .word 278
     .word 198
-    .word 203
+    .word 199
     .word 204
     .word 205
-    .word 239
+    .word 206
     .word 240
     .word 241
     .word 242
@@ -38157,23 +38765,23 @@ _page_tests:
     .word 246
     .word 247
     .word 248
-    .word 285
-    .word 206
+    .word 249
+    .word 286
     .word 207
     .word 208
     .word 209
     .word 210
     .word 211
-    .word 234
+    .word 212
     .word 235
-    .word 249
+    .word 236
     .word 250
     .word 251
     .word 252
     .word 253
-    .word 212
-    .word 236
     .word 254
+    .word 213
+    .word 237
     .word 255
     .word 256
     .word 257
@@ -38185,17 +38793,17 @@ _page_tests:
     .word 263
     .word 264
     .word 265
-    .word 271
+    .word 266
     .word 272
     .word 273
-    .word 237
+    .word 274
     .word 238
-    .word 266
+    .word 239
     .word 267
     .word 268
     .word 269
     .word 270
-    .word 286
+    .word 271
     .word 287
     .word 288
     .word 289
@@ -38219,3 +38827,4 @@ _page_tests:
     .word 307
     .word 308
     .word 309
+    .word 310

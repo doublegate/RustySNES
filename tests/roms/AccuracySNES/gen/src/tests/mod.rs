@@ -12,6 +12,7 @@ pub mod apu_sweep;
 pub mod bus;
 pub mod cart;
 pub mod cpu;
+pub mod cpu_defined;
 pub mod dma;
 pub mod hirom;
 pub mod input;
@@ -24,6 +25,7 @@ use crate::dsl::Test;
 #[must_use]
 pub fn all() -> Vec<Test> {
     let mut v = cpu::all();
+    v.push(cpu_defined::a6_15());
     v.extend(ppu::all());
     v.extend(bus::all());
     v.extend(dma::all());

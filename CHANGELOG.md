@@ -11,7 +11,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`E2.10` — the full 256-opcode SPC700 cycle sweep, and the coverage number moves to 360 of 443.**
+- **`A6.15` — every 65C816 opcode is defined, and only `STP` hangs. Coverage 361 of 443.** The row
+  executes each of the 241 straight-line opcodes in a WRAM sandbox and counts three outcomes against
+  the length **Table 5-4 of the WDC W65C816S datasheet** documents: returned where it should,
+  returned late, or did not return.
+
+  **The sandbox terminator cannot be a return.** `TXS` and `TCS` move the stack pointer — with
+  `x = 1` a `TXS` puts it in page zero — so the return address is no longer where an `RTS` would pop
+  it from. Control comes back through a `JMP`, and because a `JMP` is three bytes, the addresses are
+  chosen so its **own operand bytes are harmless one-byte instructions**: `$AAAA` (`TAX`) for the
+  clean exit and `$B8B8` (`CLV`) for the overshoot one. An opcode that consumes one byte too many
+  therefore executes a register transfer and walks into a `NOP` fill, instead of executing half an
+  address.
+
+  **The watchdog takes two strikes.** `runtime.s` already carried an NMI trampoline with a settable
+  vector; one strike would be wrong, because NMI fires once per vblank and across 241 sandbox runs
+  it will eventually land inside a *healthy* one.
+
+  **Four opcodes are dangerous even when correct, and the preamble handles each rather than
+  excluding it:** `MVN`/`MVP` move `A + 1` bytes, so `A = 0`; `XCE` flips to emulation mode only if
+  `C` is set, so `CLC` first makes it a no-op; `TXS`/`TCS` are why the exits restore `SP` from WRAM;
+  `SED` and `PLP` are why they re-establish `m`, `x`, `d` and `c` rather than trusting what came back.
+
+  **Verified by injection, twice.** `WDM` made a three-byte instruction produced exactly one LATE
+  with first-bad `$42`; `TRB dp` made to jam produced exactly one NO-RETURN with first-bad `$14`,
+  the watchdog rescuing the battery. Picking that second injection is not free — `SED` and `CLC`
+  both hang the cart *before* `A6.15` runs, because the runtime and earlier Group A rows execute
+  them. `TRB` is executed nowhere else on the cart.
+
+### Fixed
+
+- **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**
+  The NMI handler runs with whatever data bank the sandbox left — `$7E` — so `lda $4210` read a WRAM
+  byte and the NMI was never acknowledged. Three hosts happened never to land an NMI where it
+  showed; **ares did**, and the row reported `PLA` (`$68`) overshooting on ares alone, stably, with
+  every other opcode agreeing.
+
+  That reads exactly like a reference bug, and it was ours. The chain that settled it is worth
+  recording: a diagnostic that replaced the terminator with `INX` fill showed **both** ares and
+  RustySNES resuming at the correct offset, so `PLA`'s length was never in question; sweeping only
+  `$68` passed on ares, so the failure needed the full sweep's elapsed time; and disarming the
+  watchdog made all four hosts agree. Long addressing (`lda f:$004210`) is DBR-independent and fixes
+  it. The handler now also preserves `A` — `RTI` restores `P` and `PC` but not the accumulator, and
+  an interrupt that silently rewrites `A` is not transparent to what it interrupted.
+
+  With the fix the injections are exact where they had been approximate: the jam injection reported
+  two stuck opcodes and 63 clean ones before, and reports one and 240 now.
+
+- **`E2.10` — the full 256-opcode SPC700 cycle sweep.**
   The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
   and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies
   no expected values; it reads back three bytes — opcodes measured, opcodes disagreeing, and the
@@ -100,24 +147,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   It belongs with `C13.*` and `F1.22`: enumerated, uncoverable, scored as such rather than chased.
 
-- **`inidisp_forgot_to_force_blank`: the model difference is now identified exactly, and a recorded
-  claim about it is corrected.** The last per-dot framebuffer gap was documented only as "an
-  `internal_cgram_address` draw-ordering detail". The concrete difference: MesenCE updates
-  `InternalCgramAddress` inside `GetRgbColor`, called **only when `color > 0`** and **per layer
-  during tilemap render** — so a transparent pixel leaves the previous opaque column's value standing,
-  and several layers may update it within one column. RustySNES assigns it **once per column,
-  unconditionally, from the composited pixel** at the draw cursor. Structurally different models, not
-  an off-by-one.
+- **`inidisp_forgot_to_force_blank` is NOT a RustySNES defect, and the previous entry's account of
+  MesenCE's model was incomplete.** It was recorded as "the last per-dot framebuffer gap", to be
+  closed by tracking the CGRAM redirect target "in the fetch stage, per layer, on non-zero colour
+  indices". Reading the third reference changes the conclusion.
 
-  **Gate-on-opaque is not the fix**, measured rather than assumed: wrapping the assignment in
-  `if ap.opaque` moves the ROM's hash from `0xaeb678a4165b28c5` to `0xa55bd66a1e6dd125` — still not
-  the MesenCE-agreeing golden — because gating the *composite* is not gating each *layer fetch*.
+  **The incomplete claim.** MesenCE was described as updating `InternalCgramAddress` only inside
+  `GetRgbColor`, "so a transparent pixel leaves the previous opaque column's value standing". It does
+  not. `SnesPpu::RenderBgColor()` runs **after** every layer render in a span and sets
+  `InternalCgramAddress = 0` for every backdrop column it fills, ascending. So MesenCE zeroes on
+  backdrop too — and what survives a span is decided by **pass ordering across the whole span**, not
+  by the last column drawn. That is an artefact of a span-based renderer, not a per-dot process.
 
-  **Correction:** the AccuracySNES row that breaks under gate-on-opaque is **`C3.12`** ("CGRAM taken
-  in render"), not `C3.04` ("H counter advances") as previously recorded — `C3.04` passes. `C3.12`
-  is the row that asserts the redirect target directly, so its failure means the cart row and
-  MesenCE's model disagree about a backdrop column, and that needs adjudicating before either
-  changes. The real fix tracks the target in the fetch stage, per layer, on non-zero colour indices.
+  **ares settles it.** `PPU::DAC::paletteColor` sets `latch.cgramAddress = palette` unconditionally,
+  called during per-dot priority resolution in the DAC — including `paletteColor(0)` for the
+  transparent case (`dac.cpp:71`). That is RustySNES's model exactly: one assignment per dot, from
+  the composited pixel, backdrop giving zero.
+
+  So RustySNES and ares implement the same per-dot model and MesenCE differs for architectural
+  reasons. The `7fc6` in the golden encodes **MesenCE's renderer**, not hardware. The row is
+  reclassified from a per-dot gap to a reference disagreement, and the engine is not changed to match
+  a pass-ordering artefact.
+
+  Two corroborations: `C3.12` ("CGRAM taken in render"), the scored cart row that asserts the
+  redirect target directly, **passes on Mesen2 and on RustySNES** — the two agree on the assertion
+  and differ only on this homebrew framebuffer hash. And `C3.12`'s own provenance is a per-dot
+  statement — "a CGRAM access during active display uses the colour the PPU **is drawing**" — which
+  the per-dot model implements directly and a span-ordering model only approximates.
+
+  This is the shape the Mode-5 first-pixel claim had, and the lesson from that retraction applied:
+  the third reference was read **before** publishing, not after.
 
 - **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
   different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an

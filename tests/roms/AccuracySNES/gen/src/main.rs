@@ -11,6 +11,7 @@
 //!
 //! Requires `ca65` and `ld65` (cc65 2.19+) on `PATH`.
 
+mod cpu_opcodes;
 mod dossier;
 mod dsl;
 mod emit;
