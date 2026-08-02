@@ -588,6 +588,51 @@ mod tests {
         assert!(!sys.booted);
     }
 
+    /// A cartridge `/RESET` does **not** reset the PPU — its state survives (AccuracySNES `G1.06`,
+    /// an `[ERRATA]` row).
+    ///
+    /// **This assertion is on-cart impossible and that is why it lives here.** The reset line is
+    /// driven from outside the cartridge; a program cannot pull its own and then observe what
+    /// survived, because observing requires still running. The host can, so the host is where the
+    /// row is covered — see `dossier.rs::HOST_COVERED`, which records exactly that reasoning
+    /// rather than letting a host-tier cover look like an on-cart one.
+    ///
+    /// The mechanism is that `System::reset` resets the **CPU** and re-syncs the region, and
+    /// touches nothing in the PPU. That is easy to break by adding a `ppu.reset()` here for
+    /// tidiness, which is precisely what this test exists to catch.
+    #[test]
+    fn a_soft_reset_leaves_the_ppu_alone() {
+        let mut sys = System::new(0);
+        sys.bus.ppu.vram_mut()[0x1234] = 0xBEEF;
+        // Run the PPU well into a frame first. Resetting from the power-on position would leave
+        // the timeline at (0, 0) either way, so the test would pass whether or not the PPU is
+        // reset — the distinctive position is what makes the second assertion mean anything.
+        for _ in 0..20_000 {
+            sys.bus.advance_master(4);
+        }
+        let line_before = sys.bus.ppu.scanline();
+        assert!(
+            line_before > 0,
+            "the PPU did not advance; the setup is broken"
+        );
+
+        sys.reset();
+
+        assert_eq!(
+            sys.bus.ppu.vram()[0x1234],
+            0xBEEF,
+            "a soft reset cleared VRAM — on hardware the PPU never sees the cartridge reset line, \
+             so a driver relying on its tiles surviving a Reset press would break"
+        );
+        assert!(
+            sys.bus.ppu.scanline() >= line_before,
+            "a soft reset moved the PPU's timeline BACKWARDS, from line {line_before} to {}. The \
+             video clock free-runs across a cartridge reset; it may advance (the vector fetch \
+             costs clocks) but it must never restart",
+            sys.bus.ppu.scanline()
+        );
+    }
+
     #[test]
     fn system_state_round_trips_without_a_cart() {
         let mut sys = System::new(42);

@@ -806,7 +806,7 @@ impl Bus {
 
     /// Advance the master clock by `n` ticks, stepping the PPU dot clock + SPC accumulator in
     /// lockstep and re-deriving the NMI/HV-IRQ phases.
-    fn advance_master(&mut self, n: u32) {
+    pub(crate) fn advance_master(&mut self, n: u32) {
         // The SPC denominator is the REGION's master clock, not a constant: the APU's crystal is
         // region-independent and the master clock's is not, so holding the ratio fixed would scale
         // the APU with the video clock. See `SPC_DEN_PAL`.
