@@ -97,9 +97,13 @@ Two points worth stating rather than leaving implicit:
 StoreKit, no purchase or product call reaches either shell.
 
 ```text
-grep -rn 'BillingClient|StoreKit|purchase|SKProduct' android/app/src/main/kotlin ios/RustySNES/Sources
+grep -rnE 'BillingClient|StoreKit|purchase|SKProduct' android/app/src/main/kotlin ios/RustySNES/Sources
   -> nothing
 ```
+
+`-E`, and that matters for reproducibility: without it `grep` reads the `|` literally and matches only
+the whole string, so the command would report "nothing" for a reason that has nothing to do with the
+code. An audit whose command cannot be re-run is an assertion, not an audit.
 
 The crate's own module doc states the dormancy as the design (`crates/rustysnes-monetization/src/lib.rs:6-10`).
 Because nothing is sold and no ads are served, §3.1 (In-App Purchase) and the ad-disclosure rules do

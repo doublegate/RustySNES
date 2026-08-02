@@ -57,18 +57,29 @@ class MobileCoreSmokeTest {
     }
 
     /**
-     * `drainAudio` is documented as non-destructive — it returns the current frame's buffered
-     * samples rather than popping a FIFO — so calling it twice for one frame returns the same
-     * count. Pinning that here is what stops the contract drifting under a shell that calls it once
-     * per `runFrame` and would not notice.
+     * `drainAudio` crosses the boundary and returns a well-formed **interleaved stereo** buffer.
+     *
+     * It asserts an even length, not a non-destructive contract. The first version of this test
+     * called `drainAudio` twice and asserted the two counts matched, claiming to pin the documented
+     * non-destructive behaviour — but a no-ROM frame produces **no audio at all** (measured:
+     * `first=0 second=0`), so `0 == 0` passed and proved nothing. That is a vacuous test: it would
+     * have gone on passing had the contract inverted.
+     *
+     * The real contract is covered where it can be, host-side, by
+     * `rustysnes-mobile`'s own `drain_audio_returns_interleaved_stereo_samples`, which loads a ROM
+     * first. This test's job is the bridge, and an even length is what the bridge can actually
+     * prove without a ROM the picker has not been given.
      */
     @Test
-    fun drain_audio_is_non_destructive_within_a_frame() {
+    fun drain_audio_returns_a_well_formed_interleaved_buffer() {
         val core = MobileCore(MobileRegion.NTSC)
         core.runFrame()
-        val first = core.drainAudio().size
-        val second = core.drainAudio().size
-        assertEquals("drainAudio must not consume the buffer", first, second)
+        val audio = core.drainAudio()
+        assertEquals(
+            "drainAudio must return interleaved stereo, so its length is always even",
+            0,
+            audio.size % 2,
+        )
     }
 
     /** Reset and power-cycle are the two lifecycle calls the shell makes; both must cross safely. */

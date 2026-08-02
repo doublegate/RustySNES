@@ -282,15 +282,40 @@ jobs:
           test -n "$apk" || { echo "no release APK was produced"; exit 1; }
           work=$(mktemp -d)
           unzip -q "$apk" 'lib/*' -d "$work"
+          # The SAME three properties the debug gate above settled on, and the first version of
+          # this step got all three wrong by re-implementing instead of reusing:
+          #   1. DIVISIBILITY, not string equality. `0x8000` and `0x20000` are valid -- the
+          #      requirement is "at least 16 KB". The debug gate's own comment records that an
+          #      equality test wrongly flagged JNA's 64 KB-aligned libjnidispatch.so.
+          #   2. EVERY LOAD segment, not just the first (`awk ... exit` read one and stopped).
+          #   3. A `checked == 0` guard. Without it a missing ABI directory makes the glob match
+          #      nothing and the gate PASSES on an APK with no libraries in it at all.
+          aligned16k() {
+            local a
+            for a in $(readelf -lW "$1" | awk '$1 == "LOAD" { print $NF }'); do
+              [ $(( a % 16384 )) -eq 0 ] || return 1
+            done
+            return 0
+          }
           fail=0
-          for so in "$work"/lib/arm64-v8a/*.so "$work"/lib/x86_64/*.so; do
-            [ -e "$so" ] || continue
-            align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
-            case "$align" in
-              0x4000|0x10000) echo "OK   $(basename "$so")  $align" ;;
-              *) echo "FAIL $(basename "$so")  $align (need 16 KB or larger)"; fail=1 ;;
-            esac
+          checked=0
+          for abi in arm64-v8a x86_64; do
+            for so in "$work"/lib/"$abi"/*.so; do
+              [ -e "$so" ] || { echo "::error::the release APK carries no .so for $abi"; exit 1; }
+              checked=$((checked + 1))
+              if aligned16k "$so"; then
+                echo "ok: $abi/$(basename "$so")"
+              else
+                echo "::error::$so has LOAD segment(s) not a multiple of 16 KB"
+                readelf -lW "$so" | awk '$1 == "LOAD"'
+                fail=1
+              fi
+            done
           done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::the release alignment gate checked nothing"
+            exit 1
+          fi
           exit "$fail"
 
       - name: Upload the APK
@@ -370,7 +395,11 @@ jobs:
       # `RUSTFLAGS` for the same reason the `build` job sets it on its Gradle step: Gradle's
       # `cargoNdkBuild` re-runs `cargo ndk` in its own process and inherits this environment, not
       # the flags of any earlier step.
+      # Bounded, for the reason the job exists: the split contains the blast radius of a flaky
+      # emulator but does not bound its runtime, and an AVD that never reaches boot-complete would
+      # otherwise burn the whole job timeout. The observed run is ~6.5 minutes.
       - name: Run the instrumented UniFFI smoke test
+        timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env:
           RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
