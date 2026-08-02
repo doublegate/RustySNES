@@ -51,7 +51,12 @@ local function loadExtractions(romPath)
     end
     for line in f:lines() do
         if line:sub(1, 1) ~= "#" then
+            -- `%S+` would keep a trailing CR from a CRLF checkout, and every tag would then
+            -- compare unequal and take the fatal branch below.
             local idx, _, _, tag = line:match("^(%d+)	([^	]*)	([^	]*)	(%S+)")
+            if tag then
+                tag = tag:gsub("\r$", "")
+            end
             if idx then
                 if tag == "direct" or tag == "hires-even" then
                     EXTRACT[tonumber(idx)] = tag

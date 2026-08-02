@@ -93,7 +93,14 @@ impl Extract {
 
 /// Scene index (1-based, as the cart publishes it) -> the scene's declared extraction.
 fn extractions() -> BTreeMap<u8, Extract> {
-    let text = std::fs::read_to_string(manifest_path()).unwrap_or_default();
+    // Read, not `unwrap_or_default`: an unreadable manifest would make every scene `Direct` with no
+    // failure anywhere, which for a hi-res scene means hashing the left half of the picture. The
+    // missing-file case is separately caught by `manifest()`'s emptiness assert, but a *read error*
+    // on a file that exists would slip through that, and this is the reader whose silence is
+    // dangerous.
+    let path = manifest_path();
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     text.lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         .filter_map(|l| {

@@ -157,6 +157,12 @@ static void load_extractions(const char *rom_path, unsigned *out, unsigned n) {
         if (idx == 0 || idx > n) {
             continue;
         }
+        /* A trailing CR would make every tag compare unequal and take the fatal branch below, so
+         * a manifest checked out with CRLF endings would look like an unimplemented rule. */
+        char *cr = strchr(tag, '\r');
+        if (cr) {
+            *cr = '\0';
+        }
         if (strcmp(tag, "direct") == 0) {
             out[idx - 1] = EXTRACT_DIRECT;
         } else if (strcmp(tag, "hires-even") == 0) {
@@ -181,7 +187,11 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
     const unsigned want_w = (want_extract == EXTRACT_HIRES_EVEN) ? SCENE_W * 2u : SCENE_W;
     const unsigned xstep  = (want_extract == EXTRACT_HIRES_EVEN) ? 2u : 1u;
     const unsigned ystep  = (d && h >= (SCENE_H + FIRST_ROW) * 2u) ? 2u : 1u;
-    if (d && (w != want_w || h < (SCENE_H + FIRST_ROW) * ystep)) {
+    /* The warn condition is the DROP condition, character for character. They disagreed in the
+     * first draft (`<` here, `!=` below), so a frame taller than the contract was dropped without a
+     * word -- the exact silent-failure shape this host's geometry checks exist to remove. If these
+     * two ever diverge again, the quiet one wins and the loud one is decoration. */
+    if (d && (w != want_w || h != (SCENE_H + FIRST_ROW) * ystep)) {
         /* Logged ONCE per distinct geometry, not per frame: a rejected frame leaves the previous
          * hash standing, which is silent by design for duped frames but is exactly the wrong kind
          * of quiet for a geometry violation. MEASURED 2026-08-01: snes9x emits 256x224 normally and
@@ -497,6 +507,14 @@ int main(int argc, char **argv) {
                  * is always in place by the frame that is actually hashed. */
                 want_extract = extract_of[id - 1];
             }
+            /* DELIBERATELY STICKY -- do not "reset to direct when id == 0". That looks like an
+             * obvious tidy-up (it was suggested in review) and it silently breaks the hi-res
+             * capture: `run_scenes` publishes the scene ID only on frames whose field parity
+             * matches, so `id == 0` occurs INSIDE a hold, not merely between holds. Resetting there
+             * disarms the rule for the very frame that gets hashed, and snes9x stopped capturing
+             * the hi-res scene at all -- 54 match, 0 unblessed, the scene simply gone. Measured
+             * 2026-08-02. The cost of staying sticky is at most one spurious out-of-contract line
+             * at a hi-res-to-direct transition, which is a far better trade than a missing scene. */
             /* The SECOND frame of the published window, by agreement with the in-repo harness. A
              * host samples WRAM at its own frame boundary, which need not be the one the cart's
              * vblank poll sees, so both ends of the window are at risk of being off by one — this
