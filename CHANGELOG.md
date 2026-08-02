@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **RETRACTION: the Mode-5 first-pixel divergence is a 2-vs-2 reference disagreement, not a
+  RustySNES defect.** The entry below claims the two references agree bit-for-bit against RustySNES,
+  "this project's signature for a real defect". That was published from **two** references without
+  consulting the third, which is the exact mistake this project's own notes warn about.
+
+  Diffing the pixels rather than the hashes: the divergence is **one column** — column 0 of the
+  extracted sample, the first pixel of the 512-wide picture — on all 224 rows and nothing else. 224
+  differing pixels of 57,344. RustySNES `0x0000`, snes9x `0x0421` (the backdrop).
+
+  ares' `sfc/ppu/dac.cpp` settles it *against* the original conclusion: `scanline()` seeds
+  `math.above.colorEnable = false` under the comment *"the first hires pixel of each scanline is
+  transparent // note: exact value initializations are not confirmed on hardware"*, and `below()`
+  returns `(n15)0` — black — in that state. RustySNES does the same thing. The split is **RustySNES
+  + ares against snes9x + Mesen2**, on a value ares itself flags as unverified.
+
+  So there is **no defect to fix**, and `c5-mode5-hires-16px-tiles` is **not blessable** under
+  ADR 0013 rule 4 — it stays permanently unblessed as a variant set rather than looking like a
+  pending golden. `C5.15` does not become coverage this way; a hi-res scene avoiding column 0 would
+  make the rest of Mode 5 blessable, and that is the follow-up. The extraction infrastructure is
+  vindicated either way: two hosts with different geometries produced identical hashes for the other
+  57,120 pixels.
+
 - **Both scene hosts silently accepted an out-of-contract frame geometry.** The width tests were
   lower bounds — `w < SCENE_W` in the libretro host, `#buf < …` in the Mesen2 script — which catch a
   frame that is too *narrow* and miss one that is too **wide**. Too wide is the case that actually
