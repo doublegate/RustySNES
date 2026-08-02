@@ -53,6 +53,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Both scene hosts silently accepted an out-of-contract frame geometry.** The width tests were
+  lower bounds — `w < SCENE_W` in the libretro host, `#buf < …` in the Mesen2 script — which catch a
+  frame that is too *narrow* and miss one that is too **wide**. Too wide is the case that actually
+  happens: a hi-res frame arrives 512 across, both tests pass it, and each then hashes something
+  that is not the contract. The Lua script walks a 512-wide buffer with a stride of 256, hashing a
+  diagonal slice; the C host uses the real pitch and hashes the leftmost 256 columns. **A golden
+  blessed from either would be stable, reproducible and wrong.**
+
+  Both are exact now. Widening the scene region past 256×224 is real planned work, and it has to
+  start from a loud rejection rather than a silent wrong picture — which is what made this worth
+  finding before that work rather than during it.
+
+  The Mesen2 constant is **measured, not derived**: the first attempt computed
+  `SCENE_W * (SCENE_H + FIRST_ROW)` = 59,136, which is the size of the region *read* rather than of
+  the buffer *returned*, and rejected every frame. It is 256 × 239 — the whole output frame — and
+  the script now says so. All 54 scenes still match on both hosts.
+
 - **A third coverage tier for assertions the cart physically cannot observe — `G1.06` and
   `G1.18`.** Both were known-coverable and unrepresentable: the coverage report counted on-cart and
   scene covers only, so a row whose stimulus comes from outside the cartridge had nowhere to go.

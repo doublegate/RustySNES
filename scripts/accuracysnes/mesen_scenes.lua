@@ -24,6 +24,20 @@ local SCENE_DONE = BASE + 0x13
 local SCENE_W = 256
 local SCENE_H = 224
 
+-- The EXACT length `emu.getScreenBuffer()` returns for an in-contract frame: 256 x 239, the whole
+-- output frame, of which the hash reads `SCENE_H` rows starting at `FIRST_ROW`. MEASURED, not
+-- derived -- the first attempt at this check computed `SCENE_W * (SCENE_H + FIRST_ROW)` = 59136,
+-- which is the size of the region READ rather than of the buffer returned, and rejected every
+-- frame.
+--
+-- Exact, not a lower bound, and that is the point. A lower bound catches a buffer that is too small
+-- and misses one that is too LARGE -- and too large is the case that actually happens: a hi-res
+-- frame comes back 512 across, the old `#buf < ...` test passed it, and the loop below then walked
+-- it with a stride of 256, hashing a diagonal slice of the picture while reporting success. A
+-- golden blessed from that would be stable, reproducible and wrong. Widening the region past 256 is
+-- real planned work; it has to start from a loud rejection here, not a silent wrong picture.
+local SCENE_BUF_LEN = 256 * 239
+
 -- The buffer row Mesen2's picture starts on. An output convention, exactly like pixel format:
 -- Mesen hands back 256x239 whose picture begins 7 rows in, snes9x's libretro core already starts
 -- at the first visible line, and RustySNES composites from scanline 0. Calibrated by comparing
@@ -83,9 +97,16 @@ local function hashFrame(id)
     local buf = emu.getScreenBuffer()
     -- Mesen composites 256 pixels wide at 1x; anything else means a hi-res or filtered frame, and
     -- the region contract no longer holds. Say so rather than hashing something else.
+    --
+    -- The check is an EXACT length, not a lower bound, and that is the whole point. A lower bound
+    -- catches a buffer that is too small and misses one that is too LARGE -- and too large is the
+    -- case that actually happens: a hi-res frame comes back 512 wide, `#buf < 256 * 231` is false,
+    -- and the loop below then walks it with a stride of 256, hashing a diagonal slice of the
+    -- picture while reporting success. A golden blessed from that would be stable, reproducible
+    -- and wrong. Measured 2026-08-01: every current scene returns exactly 61184 = 256 x 239.
     local width = SCENE_W
-    if #buf < SCENE_W * (SCENE_H + FIRST_ROW) then
-        print("ACCURACYSNES-SCENES-BADGEOMETRY " .. #buf)
+    if #buf ~= SCENE_BUF_LEN then
+        print("ACCURACYSNES-SCENES-BADGEOMETRY " .. #buf .. " expected " .. SCENE_BUF_LEN)
         return nil
     end
     local h = 0xcbf29ce484222325

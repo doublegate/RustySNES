@@ -115,9 +115,17 @@ static bool environment(unsigned cmd, void *data) {
 /* FNV-1a over canonical 0RRRRRGGGGGBBBBB pixels — the same value the Rust harness computes from
  * its own BGR555 framebuffer, so the two are directly comparable. */
 static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
-    if (!d || w < SCENE_W || h < SCENE_H + FIRST_ROW) {
+    if (!d || w != SCENE_W || h < SCENE_H + FIRST_ROW) {
         /* A duped frame arrives as a NULL pointer; a hi-res or overscan frame is outside the
-         * contract. Either way the previous hash stands rather than being silently replaced. */
+         * contract. Either way the previous hash stands rather than being silently replaced.
+         *
+         * The width test is EXACT, not `w < SCENE_W`, and that is the point. A lower bound catches
+         * a frame that is too narrow and misses one that is too WIDE -- and too wide is the case
+         * that actually happens: a hi-res frame arrives 512 across, the old test passed it, and the
+         * loop below then hashed the leftmost 256 columns while reporting success. A golden blessed
+         * from that would be stable, reproducible and not what the contract says it is. Widening the
+         * region past 256 is real planned work; it must start from a loud rejection here, not from
+         * a silent half-picture. */
         return;
     }
     uint64_t hash = 0xcbf29ce484222325ull;
