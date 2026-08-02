@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`C11.12` is unauthorable, verified two ways — there is nothing to assert.** Checked rather than
+  assumed: the row's subject ("Mode 7 scroll offset latch timing") appears exactly **twice** in
+  `ref-docs/`, both times as a game-compatibility table row naming NHL '94, with **no behavioural
+  statement anywhere** — no value, no timing, no mechanism. And no reference models a distinct
+  timing: ares reads the register live in `sfc/ppu/mode7.cpp`
+  (`s32 hoffset = (i13)self.io.hoffsetMode7;`), with no per-scanline latch for a test to catch a core
+  getting wrong.
+
+  Writing a row would mean inventing an expectation and checking our own arithmetic against itself —
+  the `E9.11` failure mode. The genuinely testable part of `$210D`'s dual-latch behaviour (it updates
+  `M7HOFS` via `M7_old` *and* `BG1HOFS` via `BG_old`, with different formulas) is **already covered**
+  by `C4.01` and `C4.04`/`C4.05`, all blessed scenes; `C11.12` adds only the word *timing*, which is
+  the part nothing defines.
+
+  It belongs with `C13.*` and `F1.22`: enumerated, uncoverable, scored as such rather than chased.
+
 - **`inidisp_forgot_to_force_blank`: the model difference is now identified exactly, and a recorded
   claim about it is corrected.** The last per-dot framebuffer gap was documented only as "an
   `internal_cgram_address` draw-ordering detail". The concrete difference: MesenCE updates

@@ -766,6 +766,36 @@ wrapped part is page zero and precisely page zero. Nothing else is in reach howe
 which is what lets the program wait a whole buffer cycle instead of timing anything — and the echo
 offset free-runs regardless of `FLG` bit 5, so there is no starting phase to know.
 
+### `C11.12` is unauthorable — there is nothing to assert, not merely something hard
+
+Checked 2026-08-02, two ways, and recorded so it is not re-attempted.
+
+**The corpus gives a game name and nothing else.** `C11.12` ("Mode 7 scroll offset latch timing")
+appears exactly twice in `ref-docs/`, both times as a row in a game-compatibility table naming
+**NHL '94**. There is no behavioural statement anywhere — no value, no timing, no mechanism. A test
+needs something to assert, and the research corpus supplies nothing to assert.
+
+**No reference models a distinct timing either.** ares reads the register **live** in
+`sfc/ppu/mode7.cpp`:
+
+```cpp
+s32 hoffset = (i13)self.io.hoffsetMode7;
+```
+
+There is no per-scanline latch, no deferred copy, nothing a test could catch a core getting wrong.
+Writing a row would mean inventing an expectation and then checking that our own arithmetic agrees
+with itself — the `E9.11` failure mode.
+
+**What the dual-latch mechanism actually is, and where it is already covered.** fullsnes documents
+that `$210D` updates `M7HOFS` (via `M7_old`) *and* `BG1HOFS` (via `BG_old`), with different
+formulas. That is real and testable — and it is already covered: `C4.01` (the BG formula keeps the
+low three bits) and `C4.04`/`C4.05` (`$210D` drives Mode 7 scroll) are both blessed scenes. `C11.12`
+adds only the word *timing*, which is the part nothing defines.
+
+**To ever author it** would need a source that says what NHL '94 depends on — a disassembly note, a
+hardware measurement, or a reference that special-cases it. Until then it belongs with `C13.*` and
+`F1.22`: enumerated, uncoverable, and scored as such rather than chased.
+
 ### Survey of what is left in Group E, and why none of it is a quick row
 
 Six rows landed in this batch (`E8.01`, `E9.02`, `E5.06`, `E9.09`, `E3.09`, `E3.13`) at roughly one
