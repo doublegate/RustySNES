@@ -313,8 +313,12 @@ jobs:
   # and a flaky step inside `build` would put the 16 KB alignment gates -- which are not flaky, and
   # which gate a real Play requirement -- behind an AVD boot.
   #
-  # x86_64 only. The emulator runs the host ABI; the other three ABIs are covered by `build`'s
-  # alignment gates, which read ELF headers directly and need no device.
+  # The emulator runs x86_64, but that is NOT the set of Rust targets this job needs. Gradle's
+  # `cargoNdkBuild` builds every ABI in `app/build.gradle.kts`'s `cargoAbis` map -- arm64-v8a AND
+  # x86_64 -- before the instrumented test can install anything, so both targets must be installed
+  # or the task fails on `can't find crate for core`. Installing only x86_64 because "the emulator
+  # runs the host ABI" confuses what the emulator RUNS with what the build COMPILES; that is
+  # exactly how this job failed on its first run.
   smoke:
     runs-on: ubuntu-latest
     env:
@@ -327,8 +331,8 @@ jobs:
 
       - uses: ./.github/actions/rust-setup
 
-      - name: Add the x86_64 Android target
-        run: rustup target add x86_64-linux-android
+      - name: Add the Android targets Gradle's cargoNdkBuild needs
+        run: rustup target add x86_64-linux-android aarch64-linux-android
 
       # The same NDK and the same discovery as the `build` job, deliberately: `sdkmanager` is NOT
       # on PATH on `ubuntu-latest` even though `$ANDROID_HOME` is set, which that job found the
