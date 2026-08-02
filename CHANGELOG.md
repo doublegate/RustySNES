@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`E2.10` — the full 256-opcode SPC700 cycle sweep, and the coverage number moves to 360 of 443.**
+  The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
+  and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies
+  no expected values; it reads back three bytes — opcodes measured, opcodes disagreeing, and the
+  first one that did.
+
+  **How one opcode is timed.** `T2OUT` steps once every 16 opcode cycles, far too coarse for a
+  single instruction, so the sweep never times one. It times a block of six copies, sixteen times
+  over, against the same block built from `NOP`. Everything around the copies — a fixed four-byte
+  prologue, a fixed five-byte epilogue, the `CALL`, the register reset, the poll — is identical in
+  every arm and cancels in the difference, which leaves **six ticks per cycle** against a
+  quantisation of ±1 on each side.
+
+  **Branches are measured taken.** A relative branch with a displacement of *zero* lands on the
+  following instruction, which is where a not-taken branch would have gone anyway — so a block of
+  six runs straight through whichever way each one goes, and the arm can arrange the taken path.
+  The prologue that arranges it is two two-cycle immediates whatever flag it has to set, so
+  choosing one costs nothing that could leak into a difference.
+
+  **The table is built from rules, and the build fails if the rules do not tile the map.** fullsnes
+  documents the opcode map *as* rules (`OR/AND/EOR/CMP/ADC/SBC` share one operand column, the shift
+  and increment group another, the bit ops a third), and `spc_opcodes.rs` follows them; a slot filled
+  twice or left empty is a build failure, not a shipped hole. The operand kind is **recorded** at
+  construction rather than derived from the opcode byte afterwards — the first draft derived it from
+  the low nibble, which is nearly right and hides at least four traps, one of which gave
+  `MOV [aa+X],A` a pointer read from uninitialised memory, which is zero, which is the driver's own
+  variables.
+
+  **Twenty-five opcodes are excluded, by name and with reasons.** The absolute jumps and calls (one
+  encoding cannot make six copies at six addresses each fall into the next), the vectored calls
+  (`TCALL`, `PCALL`, `BRK` — their vectors are in the IPL ROM every Group E program keeps mapped),
+  the returns (they pop an address the block never pushed), and `SLEEP`/`STOP`, for which fullsnes
+  itself gives the cycle count as `?`. For those the question has no answer. The count of what *was*
+  measured is asserted on-cart at 231, so a sweep covering a different set fails rather than quietly
+  reporting no disagreements.
+
+  **Verified by injection, twice.** Adding one idle cycle to `XCN` produced exactly one disagreement,
+  first-bad `$9F` — the opcode broken. Removing one idle cycle from the taken relative branch
+  produced exactly nine, first-bad `$10` — the eight conditional branches plus `BRA`, which is also
+  the proof that the taken-path prologues really do take the branch in all eight conditions.
+
+  Two things had to be measured rather than reasoned about. The results page was first placed at
+  `$0900` and the uploaded image reached `$0948`, so the sweep overwrote its own driver as it
+  recorded — a build-time assertion now rejects that layout. And the shared bounded APU wait is a
+  fraction of a frame, right for every other Group E program and far too short for this one, which
+  runs about **42 frames**: the row reported SKIP while the SPC was working correctly and had
+  already reached the right answer in RAM.
+
+
 ### Fixed
 
 - **`E3.06` polls BOTH timers; a single end-of-interval read measured a phase, not a count.** The row

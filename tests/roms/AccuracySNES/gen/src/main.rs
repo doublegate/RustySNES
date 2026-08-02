@@ -18,6 +18,7 @@ mod font;
 mod pages;
 mod scenes;
 mod spc;
+mod spc_opcodes;
 mod tests;
 
 use std::path::{Path, PathBuf};

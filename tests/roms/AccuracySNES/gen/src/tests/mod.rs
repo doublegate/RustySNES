@@ -8,6 +8,7 @@
 //! each remaining block, and `to-dos/ROADMAP.md` carries the T-04-* ticket IDs.
 
 pub mod apu;
+pub mod apu_sweep;
 pub mod bus;
 pub mod cart;
 pub mod cpu;

@@ -2697,6 +2697,21 @@ Provenance: **Documented** (fullsnes and the SNESdev Wiki: writes to $00F0-$00FF
 | 1 | `$02` | the control voice did not read back as a large positive value, so the copy in ordinary RAM is not decoding either -- this is a broken setup, not a statement about the shadow |
 | 2 | `$04` | a sample placed at $00F7 through the register block did not decode to what the identical copy in ordinary RAM decodes to, so those writes reached the registers only and the RAM underneath them never saw them |
 
+### E2.10i — SPC cycle instrument
+
+Provenance: **Documented** (the apparatus for E2.10's 256-opcode sweep, validated against NOP = 2, XCN = 5 (also E1.14) and MUL YA = 9 -- each independently derivable from spc700_exec.rs's read/idle sequence). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
+### E2.10 — 256-opcode cycle sweep
+
+Provenance: **Documented** (fullsnes, SNES APU SPC700 CPU instruction set). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached |
+| 2 | `$04` | at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding |
+
 ### E9.02 — Noise output is bipolar
 
 Provenance: **Documented** (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample). Kind: scored.

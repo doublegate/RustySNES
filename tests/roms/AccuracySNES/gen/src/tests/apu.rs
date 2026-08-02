@@ -151,6 +151,17 @@ pub fn all() -> Vec<Test> {
         e3_09(),
         b2_07(),
         e3_13(),
+        // Late, and for the same class of reason `e9_02` is last: it drives timer 2 hard, and
+        // registered earlier it moved `E3.06`'s timer-ratio reading enough to fail that row's
+        // +/-6 band. Measured, not guessed -- E3.06 failed on code 1 with this row placed after
+        // `e3_09`. Nothing here depends on running late; it simply must not run before E3.06.
+        e2_10_instrument(),
+        // Registered HERE rather than appended in `mod.rs`, which is where it first went. Both of
+        // the ordering constraints below apply to it and neither is visible from that file: it must
+        // not run before `E3.06` (it drives timer 2 for some forty frames, harder than anything
+        // else on the cart), and it must not run after `e9_02`. Appending it there satisfied
+        // neither by intent, only by luck.
+        super::apu_sweep::e2_10(),
         // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
         // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
         // nothing can put it back. Anything appended below this line runs after that has happened.
@@ -168,7 +179,7 @@ pub fn all() -> Vec<Test> {
 /// caller's `.a8`/`.a16` directives come from its own `sep`/`rep` lines and a helper call is not
 /// one of those, so an undocumented width here would have the assembler and the CPU disagreeing
 /// about the size of the next immediate — and every instruction after it shifted.
-fn upload_and_run(a: &mut Asm, prog: &Spc) {
+pub fn upload_and_run(a: &mut Asm, prog: &Spc) {
     upload_and_run_tagged(a, prog, "");
 }
 
@@ -211,6 +222,62 @@ fn upload_only(a: &mut Asm, prog: &Spc) {
     a.c("the IPL before the cart has read a thing — which reads as a wrong answer, not a race.");
     a.l("sep #$20");
     a.l("lda #$00");
+    a.l("sta APUIO0");
+}
+
+/// [`upload_and_run`] with a **much** longer bounded wait, for a program that takes tens of frames.
+///
+/// The shared wait is `cpx #$8000` — some thirty thousand iterations, a fraction of one frame. That
+/// is the right size for every other Group E program, which answers in well under a scanline, and
+/// it is the reason a broken upload stands one test down instead of hanging the battery.
+///
+/// `E2.10` is the exception and had to be measured to be believed: the 256-opcode sweep runs for
+/// about **42 frames**, so the shared wait times out while the sweep is still on opcode `$0A`. The
+/// symptom is indistinguishable from an APU that never booted — the row reported SKIP while the
+/// SPC was working correctly and, checked directly in RAM, had already reached the right answer.
+///
+/// This waits sixteen times through a full 16-bit counter, roughly two hundred frames' worth, so
+/// the bound is still a bound and still far shorter than the battery's own frame budget.
+pub fn upload_and_run_long(a: &mut Asm, prog: &Spc) {
+    upload_only(a, prog);
+    a.c("Wait for the done marker, but not forever — see this proc's doc comment for why the");
+    a.c("shared wait is far too short for this one program.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta f:$7E01F8       ; the outer pass counter, in the same scratch page E3.06 uses");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("wait");
+    a.l("sep #$20");
+    a.l("lda APUIO0");
+    a.l(&format!("cmp #${DONE:02X}"));
+    a.l("beq @ran");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("bne @wait");
+    a.c("X wrapped: one full pass of 65536. Count it, and give up after sixteen.");
+    a.l("sep #$20");
+    a.l("lda f:$7E01F8");
+    a.l("inc a");
+    a.l("sta f:$7E01F8");
+    a.l("cmp #$10");
+    a.l("rep #$30");
+    a.l("bne @wait");
+    a.l("jmp @timeout");
+    a.label("ran");
+    a.c(
+        "Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM",
+    );
+    a.c("overwrites ports 0 and 1 with its $AA/$BB announcement.");
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l("sta f:$7E0100");
+    a.l("lda APUIO2");
+    a.l("sta f:$7E0101");
+    a.l("lda APUIO3");
+    a.l("sta f:$7E0102");
+    a.c("Release: the program hands the APU back to the IPL so the NEXT test can upload at all.");
+    a.l(&format!("lda #${RELEASE:02X}"));
     a.l("sta APUIO0");
 }
 
@@ -395,7 +462,7 @@ fn apu_require_power_on(a: &mut Asm, why: &str) {
 /// Every test in this group needs it because `upload_and_run` branches to `@timeout` when the APU
 /// never answers, and that arm has to record SKIP and leave — a test whose APU did not boot has
 /// asserted nothing, and reporting a pass would be a lie about the only thing it was measuring.
-fn apu_timeout_arm(a: &mut Asm) {
+pub fn apu_timeout_arm(a: &mut Asm) {
     apu_timeout_arm_tagged(a, "timeout");
 }
 
@@ -9043,6 +9110,156 @@ fn b2_07() -> Test {
         Kind::Scored,
         None,
     )
+}
+
+/// The `E2.10` SPC700 cycle-sweep **instrument**, validated against three known opcodes.
+///
+/// # Why this is a golden and does not claim `E2.10`
+///
+/// `E2.10` is a *full 256-opcode* cycle sweep. This is the measuring apparatus it needs plus the
+/// proof that the apparatus works, and nothing more — so it records values rather than scoring
+/// them, and `dossier.rs::UNENUMERATED` says exactly that. Claiming `E2.10` from three opcodes
+/// would be the honesty-gate violation the whole provenance tier exists to prevent.
+///
+/// # The instrument
+///
+/// Timer 2 at `T2DIV = 1` steps `T2OUT` every **32 SMP base clocks — 16 opcode cycles**. That is
+/// far too coarse for one instruction, so the measurement is a differential over a repeated block:
+///
+/// **That rate was MEASURED, and the first draft of this comment derived it wrongly.** `Timer<16>`
+/// fires stage 1 every 16 base clocks, but `T2OUT` counts stage-2 increments, which happen on the
+/// 1→0 transition — every *two* stage-1 toggles, so every 32 base clocks. Deriving "8 opcode
+/// cycles" from the 16 predicted exactly double the real differences (96/224 against a measured
+/// 48/112) and would have shipped a doc that disagreed with its own row's numbers.
+///
+/// ```text
+/// loop:  <REPEATS copies of the opcode>
+///        sum += T2OUT        (read-and-clear)
+///        until ITERATIONS
+/// ```
+///
+/// One cycle of difference becomes `REPEATS * ITERATIONS / 16` = **16 ticks**, which is still
+/// enormous against the +/-1 tick the counter quantises at. The poll's own cost sits in every arm and cancels
+/// in the difference, exactly as `E3.06`'s ratio does.
+///
+/// **The 4-bit ceiling decides `REPEATS`.** `T2OUT` is read-and-clear and four bits, so one
+/// iteration must stay under 16 ticks = 128 cycles or the count silently wraps — the trap `E3.06`
+/// was rewritten to escape. Eight copies of the slowest opcode measured here (`MUL YA`, 9 cycles)
+/// plus the ~15-cycle poll is 87 cycles = ~5 ticks, with room to spare. An opcode above ~30 cycles
+/// would need a smaller `REPEATS`, which is why the full sweep should not assume one constant
+/// serves all 256.
+///
+/// # The three validators
+///
+/// Chosen because their costs are independently known from `spc700_exec.rs`'s dispatch — each
+/// instruction's cycles are its `read`/`idle` calls plus the fetch — and because `XCN` is separately
+/// pinned at 5 by `E1.14`:
+///
+/// | opcode | cycles | expected difference from `NOP` | in ticks |
+/// |---|---:|---:|---:|
+/// | `NOP` | 2 | — (the baseline) | — |
+/// | `XCN` | 5 | 3 | **48** |
+/// | `MUL YA` | 9 | 7 | **112** |
+///
+/// Measured: baseline **94**, `XCN` **142** (+48), `MUL YA` **206** (+112) — both exact.
+///
+/// A core whose `XCN` were 4 or 6 would read 32 or 64 ticks, not 48. The apparatus is what is being
+/// validated here; the opcodes are the ruler it is checked against.
+fn e2_10_instrument() -> Test {
+    /// Copies of the opcode per iteration. Bounded by `T2OUT`'s four bits — see the doc comment.
+    const REPEATS: usize = 8;
+    /// Iterations. `REPEATS * ITERATIONS / 16` is the ticks-per-cycle-of-difference
+    /// resolution — 16, because `T2OUT` steps every **16** opcode cycles. The first draft of this
+    /// line said `/ 8`, which is the same halving error the doc comment above already records.
+    const ITERATIONS: u8 = 32;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFC, 0x01) // T2DIV = 1: T2OUT steps every 16 opcode cycles (measured)
+        .mov_dp_imm(0xF1, 0x84); // enable timer 2; bit 7 keeps the IPL mapped
+
+    e2_10_measure(&mut prog, REPEATS, ITERATIONS, PORT1, |p| {
+        p.nop();
+    });
+    e2_10_measure(&mut prog, REPEATS, ITERATIONS, PORT2, |p| {
+        p.xcn();
+    });
+    e2_10_measure(&mut prog, REPEATS, ITERATIONS, PORT3, |p| {
+        p.mul_ya();
+    });
+
+    prog.mov_dp_imm(0xF1, 0x80)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    upload_and_run(&mut a, &prog);
+    a.l("rep #$30");
+    a.l("lda f:$7E0100");
+    a.l("and #$00FF");
+    a.record(
+        277,
+        "E2.10 instrument: 8xNOP x32, timer-2 ticks (the baseline)",
+    );
+    a.l("lda f:$7E0101");
+    a.l("and #$00FF");
+    a.record(278, "E2.10 instrument: 8xXCN x32 (expect baseline + 48)");
+    a.l("lda f:$7E0102");
+    a.l("and #$00FF");
+    a.record(
+        279,
+        "E2.10 instrument: 8xMUL YA x32 (expect baseline + 112)",
+    );
+    apu_timeout_arm(&mut a);
+    a.finish(
+        "E2.10i",
+        'E',
+        "SPC cycle instrument",
+        Provenance::Documented(
+            "the apparatus for E2.10's 256-opcode sweep, validated against NOP = 2, XCN = 5 (also \
+             E1.14) and MUL YA = 9 -- each independently derivable from spc700_exec.rs's read/idle \
+             sequence",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
+/// Emit one arm of [`e2_10_instrument`]: `repeats` copies of `body`, `iterations` times, summing
+/// `T2OUT` into `port`.
+///
+/// The sum is 8-bit and the arms are sized so it cannot overflow: the slowest arm here is ~11 ticks
+/// an iteration over 32 iterations, about 350 — which does NOT fit in eight bits, so the low byte is
+/// what reaches the port and the caller compares differences rather than absolutes. Differences of
+/// the low byte are still exact while the arms stay within 256 ticks of each other, which the
+/// expected 96 and 224 both do.
+fn e2_10_measure(
+    prog: &mut Spc,
+    repeats: usize,
+    iterations: u8,
+    port: u8,
+    body: impl Fn(&mut Spc),
+) {
+    prog.mov_dp_imm(0x10, 0x00) // running sum (low byte)
+        .mov_dp_imm(0x11, 0x00) // iteration counter
+        .mov_a_dp(0xFF); // drain T2OUT so this arm counts only its own loop
+    let top = prog.here();
+    for _ in 0..repeats {
+        body(prog);
+    }
+    prog.mov_a_dp(0xFF) // T2OUT, read-and-clear
+        .mov_dp_a(0x12)
+        .mov_a_dp(0x10)
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x10)
+        .inc_dp(0x11)
+        .mov_a_dp(0x11)
+        .cmp_a_imm(iterations);
+    prog.bne_back(top);
+    prog.mov_a_dp(0x10).mov_dp_a(port);
 }
 
 /// Emit: set `$F0` to `test`, then accumulate timer-0 ticks over `polls` passes into `port`.

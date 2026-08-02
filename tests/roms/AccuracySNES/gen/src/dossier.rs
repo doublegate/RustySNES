@@ -100,6 +100,8 @@ pub const MAP: &[(&str, &[&str])] = &[
     ("D1.13", &["D1.13"]),
     ("D1.11", &["D1.11"]),
     ("D1.08", &["D1.08"]),
+    ("E2.10i", &[]),
+    ("E2.10", &["E2.10"]),
     ("B4.16", &[]),
     // --- T-04-I opcode sweep: many tests, one enumerated assertion (declared in SPLITS) ---
     ("A5.S01", &["A5.01-08"]),
@@ -516,6 +518,16 @@ pub const HOST_COVERED: &[(&str, &str, &str)] = &[
 
 /// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
 pub const UNENUMERATED: &[(&str, &str)] = &[
+    (
+        "E2.10i",
+        "The apparatus for E2.10's 256-opcode cycle sweep, plus the three opcodes that prove it \
+         works (NOP = 2, XCN = 5, MUL YA = 9). It implements no enumerated assertion because \
+         E2.10 is a FULL 256-opcode sweep and three opcodes are not that -- claiming the row from \
+         a validation set is exactly the overclaim the provenance tier exists to stop. It is a \
+         golden so the measured tick totals cross-validate across emulators. E2.10 itself is now \
+         claimed by the full sweep in tests/apu_sweep.rs; this row stays because its three raw \
+         tick totals cross-validate directly, where the sweep's verdict is a pass/fail count",
+    ),
     (
         "B4.16",
         "The before/after guard for T-06-A. It records where an H-IRQ fires at an HTIME below \
