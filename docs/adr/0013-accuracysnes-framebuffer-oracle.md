@@ -265,3 +265,43 @@ a state no picture can show; an unshowable scene hashes stably and every emulato
 The control scene is what caught it, and its doc comment said in advance what an equal hash would
 mean. **Write the control first; it is the only thing that distinguishes "the references agree" from
 "nothing happened".**
+
+### Interlace needs a rule the current design cannot express
+
+Probed 2026-08-02, scene withdrawn. Two findings, and the second is the blocker.
+
+**The good news: Mesen2 is no longer nondeterministic here.** The earlier note that "Mesen2
+alternates between both field parities run-to-run on one build" no longer reproduces — three
+consecutive runs of an interlace scene produced the identical result, as did two of snes9x. That
+nondeterminism was almost certainly the `emu.setInput` defect fixed earlier, and the standing advice
+to "run any field-dependent capture twice per host" can be retired as the *reason* interlace is
+blocked. It is blocked for a different reason.
+
+**The blocker: the two hosts emit different WIDTHS for the same interlace scene.**
+
+| scene kind | snes9x | Mesen2 |
+|---|---|---|
+| ordinary | `256x224` | `256x239` |
+| Mode 5 hi-res | `512x224` | `512x478` |
+| **interlace** | **`256x224`** | **`512x478`** |
+
+Hi-res worked because both hosts emitted **512 wide** and differed only in height, which `HiResEven`
+absorbs by deriving the row step from the observed height. Interlace does not: snes9x renders a
+single field at 256 wide while Mesen2 doubles both dimensions. `HiResEven`'s `width == 512` assertion
+cannot hold for both, and no single `(xstep, ystep)` pair describes both reductions.
+
+So `extract` as designed — one declared rule per scene, each host applying the same reduction — is
+insufficient for interlace. The options, none of them free:
+
+1. A `Downsample` rule that reduces *whatever* the host emits to 256x224 by deriving both steps from
+   the observed geometry. General, and it subsumes `HiResEven` — but it gives up the
+   **declared-not-inferred** property that is the whole reason `extract` catches a core rendering
+   256 wide when it should render 512.
+2. A per-host reduction table, so a rule can say "snes9x: as-is; Mesen2: halve both". Keeps the
+   declaration honest at the cost of the hosts no longer being interchangeable.
+3. Declare the expected geometry per rule *and* per host, and reject anything else — the strictest,
+   and the most to maintain.
+
+Option 1 is the tempting one and should be resisted on its own: it would make the hi-res case
+silently accept a 256-wide frame for a scene that must be 512. If interlace is worth covering, option
+2 is the honest shape.

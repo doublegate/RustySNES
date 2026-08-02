@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
+  different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an
+  interlace scene produced identical results, so the standing note that "Mesen2 alternates between
+  both field parities run-to-run on one build" no longer reproduces — that was almost certainly the
+  `emu.setInput` defect fixed earlier, and "run any field-dependent capture twice per host" can be
+  retired as the *reason* interlace is blocked.
+
+  The actual blocker is that the two hosts emit different **widths** for the same interlace scene:
+  snes9x `256x224`, Mesen2 `512x478`. Hi-res worked because both emitted 512 wide and differed only
+  in height, which `HiResEven` absorbs by deriving the row step from the observed height. Here no
+  single `(xstep, ystep)` pair describes both reductions, so `extract` as designed — one declared
+  rule per scene, every host applying the same reduction — is insufficient.
+
+  `docs/adr/0013` records the three options and argues against the tempting one: a generic
+  "downsample whatever you get to 256x224" rule would subsume `HiResEven` but give up the
+  declared-not-inferred property, and would then silently accept a 256-wide frame for a scene that
+  must be 512.
+
 - **`C10.04` attempted and withdrawn: it is blocked by the same exclusion that unblocked `C5.15`.**
   A Mode 5 scene with `MOSAIC = $01` was written against the control the working rules require — the
   same canvas with mosaic off — and hashed **identically to it on both references**
