@@ -205,13 +205,18 @@ fn hash_scene(fb: &[u16], width: usize, extract: Extract) -> (u64, Vec<u16>) {
         FIRST_ROW + SCENE_H
     );
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut px = Vec::with_capacity(SCENE_W * SCENE_H);
+    // The sample is narrower than the region under `HiResEven` — see `first_col`. All three hosts
+    // loop over the SAMPLE index and derive the source column from it, rather than looping over
+    // source columns, so the three implementations line up statement for statement; cross-host
+    // drift in this loop is the one thing a golden cannot detect.
+    let sample_w = SCENE_W - first_col;
+    let mut px = Vec::with_capacity(sample_w * SCENE_H);
     for y in FIRST_ROW..FIRST_ROW + SCENE_H {
-        for x in first_col..SCENE_W {
+        for x in 0..sample_w {
             // Even columns only under `HiResEven`: the subscreen half, which is the half the
             // references agree on. RustySNES's own framebuffer is not line-doubled, so the row
             // index needs no step — Mesen2's does, and that is handled in its own host.
-            let p = fb[y * width + x * step];
+            let p = fb[y * width + (x + first_col) * step];
             let canonical = ((p & 0x1F) << 10) | (p & 0x03E0) | ((p >> 10) & 0x1F);
             px.push(canonical);
             h ^= u64::from(canonical);

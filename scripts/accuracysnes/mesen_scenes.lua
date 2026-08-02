@@ -159,8 +159,10 @@ local function hashFrame(id)
     local px = {}
     for y = 0, SCENE_H - 1 do
         local row = (y + FIRST_ROW) * ystep * width
-        for x = firstCol, SCENE_W - 1 do
-            local v = buf[row + x * xstep + 1]
+        -- Loop the SAMPLE index and derive the source column, matching the C and Rust hosts
+        -- statement for statement; cross-host drift here is the one thing a golden cannot detect.
+        for x = 0, SCENE_W - 1 - firstCol do
+            local v = buf[row + (x + firstCol) * xstep + 1]
             -- Mesen hands back 24-bit RGB; the SNES channels are 5-bit widened to 8, so the top
             -- five bits recover the original rather than inventing precision.
             local r = (v >> 19) & 0x1F

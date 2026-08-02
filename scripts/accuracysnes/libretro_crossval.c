@@ -229,13 +229,16 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
     uint64_t hash = 0xcbf29ce484222325ull;
     for (unsigned y = 0; y < SCENE_H; y++) {
         const uint8_t *row = (const uint8_t *)d + (size_t)(y + FIRST_ROW) * ystep * p;
-        for (unsigned x = first_col; x < SCENE_W; x++) {
+        /* Loop the SAMPLE index and derive the source column, matching the Rust and Lua hosts
+         * statement for statement -- cross-host drift in this loop is the one thing a golden
+         * cannot detect. */
+        for (unsigned x = 0; x < SCENE_W - first_col; x++) {
             unsigned r, g, b;
             if (pixel_format == FMT_XRGB8888) {
-                uint32_t v = ((const uint32_t *)row)[x * xstep];
+                uint32_t v = ((const uint32_t *)row)[(x + first_col) * xstep];
                 r = (v >> 19) & 0x1F; g = (v >> 11) & 0x1F; b = (v >> 3) & 0x1F;
             } else {
-                uint16_t v = ((const uint16_t *)row)[x * xstep];
+                uint16_t v = ((const uint16_t *)row)[(x + first_col) * xstep];
                 if (pixel_format == FMT_RGB565) {
                     /* Green is 6 bits here because the core widened a 5-bit channel; dropping the
                      * low bit recovers the original rather than inventing precision. */
