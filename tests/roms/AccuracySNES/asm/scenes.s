@@ -787,6 +787,31 @@ SCENES_IMPL = 1
     rts
 .endproc
 
+; c5-mode5-hires-16px-tiles — C5.15
+; Mode 5, whose tiles are SIXTEEN pixels wide rather than eight — the canvas font rendered at double width across a 512-pixel picture. The first scene to declare a non-`Direct` extraction: the hosts do not agree on the SHAPE of a hi-res frame (snes9x emits 512x224, Mesen2 512x478 because it line-doubles), so the sample is the EVEN columns — the subscreen half, the one all three references agree on — and the even rows where the height doubled too. See the 2026-08-02 supplement in `docs/adr/0013`.
+.proc scene_c5_mode5_hires_16px_tiles
+    .a16
+    .i16
+    sep #$20
+    .a8
+    lda #$05
+    sta $2105         ; BGMODE 5 — 512-wide hi-res, 16-px-wide tiles
+    stz $210B
+    lda #(MAP_BASE >> 8)
+    sta $2107
+    jsr scene_low_tiles ; the canvas map indexes past the font
+    sep #$20
+    .a8
+    lda #$01
+    sta $212C         ; BG1 only
+    lda #$0F
+    sta $2100
+    rep #$30
+    .a16
+    .i16
+    rts
+.endproc
+
 ; c5-mode2-plain — C5.03
 ; Mode 2 with BG1 and BG2 displayed and offset-per-tile left inert (BG3's table is all zeroes, so no entry carries an enable bit). The control for the `c6-*` scenes: if this renders and they do not, the fault is in their setup rather than in the mode. It is also `C5.03`'s own evidence, which is why it is a scene and not a scratch file.
 .proc scene_c5_mode2_plain
@@ -2291,7 +2316,7 @@ SCENES_IMPL = 1
 .export _scene_count
 .export _scene_entries
 _scene_count:
-    .word 54
+    .word 55
 _scene_entries:
     .addr scene_c5_mode1_bg_priority
     .addr scene_c8_fixed_colour_add
@@ -2311,6 +2336,7 @@ _scene_entries:
     .addr scene_c8_window_logic_xor
     .addr scene_c10_mosaic_screen_anchored
     .addr scene_c12_direct_colour_mode3
+    .addr scene_c5_mode5_hires_16px_tiles
     .addr scene_c5_mode2_plain
     .addr scene_c6_opt_v_alternating_columns
     .addr scene_c6_opt_v_replaces_vofs

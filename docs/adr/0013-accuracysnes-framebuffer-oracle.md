@@ -178,3 +178,27 @@ that was too small and passed one that was too large, hashing a diagonal slice (
 real pitch). That is fixed in **PR #320** (`libretro_crossval.c`'s exact `w`/`h` test and
 `mesen_scenes.lua`'s exact `SCENE_BUF_LEN`), which landed before this supplement; the loud rejection
 it added is literally what produced the table above.
+
+### Implemented 2026-08-02, and it found something immediately
+
+`Scene::extract` landed as specified above — a closed enum, emitted as `build/scenes.tsv`'s fourth
+column, honoured by all three hosts, each rejecting a rule it does not implement rather than falling
+back to `Direct`.
+
+The first hi-res scene (`c5-mode5-hires-16px-tiles`, `C5.15`) produced a divergence on its first run:
+
+| host | frame emitted | hash of the extracted 256x224 sample |
+|---|---|---|
+| snes9x | 512x224 | `0xbcb8d1c2bec08325` |
+| Mesen2 | 512x478 | `0xbcb8d1c2bec08325` |
+| **RustySNES** | 512 wide | **`0xd8dad9b9cb91e325`** |
+
+**The two references agree bit-for-bit despite emitting different geometries and running entirely
+different extraction paths.** That is strong evidence the extraction is right and the divergence is
+real — and it is this project's own signature for a genuine defect: three hosts failing identically
+usually means a broken test, one host failing alone means a bug in that host.
+
+The scene is left **unblessed**. Rule 4 would permit blessing at the reference value, since the
+references agree — but that turns the scene gate red on a live finding, and an unblessed scene does
+not fail the gate, so the finding is preserved without taking the tree red. The investigation is
+tracked separately; blessing follows the fix.

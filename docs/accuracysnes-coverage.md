@@ -95,6 +95,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 - **`C8.08`** — c8-window-logic-xor
 - **`C10.02`** — c10-mosaic-screen-anchored
 - **`C12.01,C12.03`** — c12-direct-colour-mode3
+- **`C5.15`** — c5-mode5-hires-16px-tiles
 - **`C5.03`** — c5-mode2-plain
 - **`C6.05,C6.06`** — c6-opt-v-alternating-columns
 - **`C6.04`** — c6-opt-v-replaces-vofs

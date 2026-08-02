@@ -31,6 +31,40 @@
 
 use core::fmt::Write as _;
 
+/// How a host turns the frame it emits into the canonical 256x224 sample (`docs/adr/0013`
+/// supplement).
+///
+/// Carried in `build/scenes.tsv` rather than compiled into any host, so the rule travels with the
+/// scene and the C, Lua and Rust implementations cannot drift apart — the same reasoning that makes
+/// `FIRST_ROW` a declared per-host constant rather than a guess.
+///
+/// **A host that meets a value it does not implement must REJECT the scene, never fall back to
+/// [`Extract::Direct`].** Falling back would silently hash the left half of a hi-res picture, which
+/// is exactly the class of bug the exact-geometry checks were added to stop.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Extract {
+    /// The frame is 256 wide: take `SCENE_H` rows from `FIRST_ROW`. Every scene until hi-res, and
+    /// the default, so no existing golden moves.
+    Direct,
+    /// The frame is **512 wide**: take the even columns — the subscreen half, the one the three
+    /// references agree on — and the even rows as well on a host whose height also doubled.
+    ///
+    /// Both halves are needed because the hosts disagree about the *shape* of a hi-res frame, not
+    /// just its pixels: measured 2026-08-02, snes9x emits `512x224` and Mesen2 `512x478`, because
+    /// Mesen2 line-doubles and snes9x does not.
+    HiResEven,
+}
+
+impl Extract {
+    /// The manifest spelling. Parsed by every host, so it is part of the format.
+    const fn tag(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::HiResEven => "hires-even",
+        }
+    }
+}
+
 /// One rendered scene: a name, the assertion it covers, and the setup it performs.
 pub struct Scene {
     /// Stable identifier, used as the golden's key. Never renumber — the golden is keyed on it.
@@ -44,6 +78,8 @@ pub struct Scene {
     /// scene ends by writing `INIDISP` ($2100), because brightness is part of what a scene may
     /// want to vary. Omit that write and the scene renders black.
     pub setup: &'static [&'static str],
+    /// How a host samples this scene's frame. [`Extract::Direct`] for everything that is not hi-res.
+    pub extract: Extract,
 }
 
 /// The scene set. Deliberately small to begin with — ADR 0013 gates only cross-validated scenes,
@@ -70,6 +106,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100         ; brightness 15, forced blank off",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-fixed-colour-add",
@@ -92,6 +129,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c10-mosaic-4x",
@@ -110,6 +148,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-mode0-four-bg-priority",
@@ -143,6 +182,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-mode0-palette-segregation",
@@ -177,6 +217,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-mode3-8bpp",
@@ -199,6 +240,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-tilemap-flip-bits",
@@ -255,6 +297,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-16x16-tiles",
@@ -275,6 +318,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-subtract-mode",
@@ -299,6 +343,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-clamp-no-wrap",
@@ -324,6 +369,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-half-ignored-on-fixed-backdrop",
@@ -349,6 +395,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-window-bounds-inclusive",
@@ -376,6 +423,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-window-left-gt-right-empty",
@@ -402,6 +450,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-window-inverted-empty-is-full",
@@ -429,6 +478,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-both-windows-disabled-empty",
@@ -455,6 +505,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-window-logic-xor",
@@ -488,6 +539,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c10-mosaic-screen-anchored",
@@ -516,6 +568,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c12-direct-colour-mode3",
@@ -539,6 +592,33 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
+    },
+    Scene {
+        id: "c5-mode5-hires-16px-tiles",
+        dossier: "C5.15",
+        what: "Mode 5, whose tiles are SIXTEEN pixels wide rather than eight — the canvas font \
+               rendered at double width across a 512-pixel picture. The first scene to declare a \
+               non-`Direct` extraction: the hosts do not agree on the SHAPE of a hi-res frame \
+               (snes9x emits 512x224, Mesen2 512x478 because it line-doubles), so the sample is \
+               the EVEN columns — the subscreen half, the one all three references agree on — and \
+               the even rows where the height doubled too. See the 2026-08-02 supplement in \
+               `docs/adr/0013`.",
+        setup: &[
+            "sep #$20",
+            "lda #$05",
+            "sta $2105         ; BGMODE 5 — 512-wide hi-res, 16-px-wide tiles",
+            "stz $210B",
+            "lda #(MAP_BASE >> 8)",
+            "sta $2107",
+            "jsr scene_low_tiles ; the canvas map indexes past the font",
+            "sep #$20",
+            "lda #$01",
+            "sta $212C         ; BG1 only",
+            "lda #$0F",
+            "sta $2100",
+        ],
+        extract: Extract::HiResEven,
     },
     Scene {
         id: "c5-mode2-plain",
@@ -572,6 +652,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-opt-v-alternating-columns",
@@ -612,6 +693,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-opt-v-replaces-vofs",
@@ -650,6 +732,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-opt-h-keeps-fine-scroll",
@@ -688,6 +771,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-opt-enable-bit-bg1",
@@ -726,6 +810,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-opt-enable-bit-bg2",
@@ -763,6 +848,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c6-mode4-h-vs-v-select",
@@ -798,6 +884,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-identity",
@@ -832,6 +919,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-mode4-two-layers",
@@ -866,6 +954,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-bgsc-64x32-second-map-right",
@@ -895,6 +984,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-mode7-ignores-bgsc",
@@ -936,6 +1026,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-org-13bit-mask",
@@ -985,6 +1076,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c12-direct-colour-zero-is-transparent",
@@ -1014,6 +1106,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-rotate-scale",
@@ -1054,6 +1147,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-screen-over-wrap",
@@ -1087,6 +1181,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-screen-over-transparent",
@@ -1120,6 +1215,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-screen-over-char0",
@@ -1154,6 +1250,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-screen-flip",
@@ -1188,6 +1285,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-extbg-priority-split",
@@ -1224,6 +1322,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-direct-colour",
@@ -1259,6 +1358,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c10-mode7-mosaic",
@@ -1294,6 +1394,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-window",
@@ -1340,6 +1441,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c4-shared-scroll-latch",
@@ -1364,6 +1466,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c4-hofs-keeps-low-three-bits",
@@ -1388,6 +1491,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c4-210d-drives-mode7-scroll",
@@ -1425,6 +1529,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-lower-index-on-top",
@@ -1470,6 +1575,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-obj-math-palettes-4-7",
@@ -1517,6 +1623,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-name-select-picks-second-table",
@@ -1558,6 +1665,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-objsel-size-6",
@@ -1605,6 +1713,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-objsel-size-7",
@@ -1651,6 +1760,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-vflip-tall-halves",
@@ -1694,6 +1804,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-64px-wraps-bottom-to-top",
@@ -1732,6 +1843,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c7-hflip-sliver-order",
@@ -1774,6 +1886,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c8-force-black-outside-window",
@@ -1805,6 +1918,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100         ; brightness 15, forced blank off",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c5-4bpp-bitplane-order",
@@ -1891,6 +2005,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100         ; brightness 15, forced blank off",
         ],
+        extract: Extract::Direct,
     },
     Scene {
         id: "c11-mode7-product-low-bits-masked",
@@ -1925,6 +2040,7 @@ pub const SCENES: &[Scene] = &[
             "lda #$0F",
             "sta $2100",
         ],
+        extract: Extract::Direct,
     },
 ];
 
@@ -2412,9 +2528,16 @@ pub fn asm() -> String {
 /// stable names, written next to the ROM by the same build that produced it.
 #[must_use]
 pub fn manifest() -> String {
-    let mut s = String::from("# GENERATED by accuracysnes-gen — index\tid\tdossier\n");
+    let mut s = String::from("# GENERATED by accuracysnes-gen — index\tid\tdossier\textract\n");
     for (i, sc) in SCENES.iter().enumerate() {
-        let _ = writeln!(s, "{}\t{}\t{}", i + 1, sc.id, sc.dossier);
+        let _ = writeln!(
+            s,
+            "{}\t{}\t{}\t{}",
+            i + 1,
+            sc.id,
+            sc.dossier,
+            sc.extract.tag()
+        );
     }
     s
 }

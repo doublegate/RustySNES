@@ -80,6 +80,15 @@ static char sys_dir[] = ".";
 #define FMT_RGB565   2u
 
 static unsigned pixel_format = FMT_0RGB1555;
+
+/* The extraction the scene currently being held declares, read from build/scenes.tsv. Declared per
+ * scene rather than inferred from the geometry: inferring would let a scene that is SUPPOSED to be
+ * hi-res, but which a broken core rendered 256 wide, be hashed as `direct` and match a `direct`
+ * golden. `docs/adr/0013`, 2026-08-02 supplement. */
+#define EXTRACT_DIRECT      0u
+#define EXTRACT_HIRES_EVEN  1u
+static unsigned want_extract = EXTRACT_DIRECT;
+
 static uint64_t last_frame_hash;
 static bool last_frame_ok;
 /* The canonical pixels behind `last_frame_hash`, kept so a disagreement can be diffed pixel by
@@ -112,10 +121,67 @@ static bool environment(unsigned cmd, void *data) {
     }
 }
 
+/* Read `build/scenes.tsv`'s fourth column into `out`, indexed by scene number - 1.
+ *
+ * The manifest sits next to the ROM and is written by the build that produced it, so it describes
+ * THIS cart's numbering. A missing file leaves everything `direct`, which is what every scene was
+ * before hi-res; an UNKNOWN rule is fatal, because falling back to `direct` would silently hash the
+ * left half of a hi-res picture and produce a golden that looks fine. */
+static void load_extractions(const char *rom_path, unsigned *out, unsigned n) {
+    for (unsigned i = 0; i < n; i++) {
+        out[i] = EXTRACT_DIRECT;
+    }
+    char path[1024];
+    const char *slash = strrchr(rom_path, '/');
+    size_t dir = slash ? (size_t)(slash - rom_path) + 1 : 0;
+    if (dir + strlen("scenes.tsv") + 1 > sizeof path) {
+        return;
+    }
+    memcpy(path, rom_path, dir);
+    strcpy(path + dir, "scenes.tsv");
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "accuracysnes: no %s; every scene treated as `direct`\n", path);
+        return;
+    }
+    char line[512];
+    while (fgets(line, sizeof line, f)) {
+        if (line[0] == '#') {
+            continue;
+        }
+        unsigned idx = 0;
+        char id[128], dossier[128], tag[64];
+        if (sscanf(line, "%u\t%127[^\t]\t%127[^\t]\t%63s", &idx, id, dossier, tag) != 4) {
+            continue;
+        }
+        if (idx == 0 || idx > n) {
+            continue;
+        }
+        if (strcmp(tag, "direct") == 0) {
+            out[idx - 1] = EXTRACT_DIRECT;
+        } else if (strcmp(tag, "hires-even") == 0) {
+            out[idx - 1] = EXTRACT_HIRES_EVEN;
+        } else {
+            fprintf(stderr, "accuracysnes: scenes.tsv declares extraction `%s` for scene %u, which "
+                            "this host does not implement; falling back to `direct` would hash the "
+                            "wrong region\n", tag, idx);
+            exit(2);
+        }
+    }
+    fclose(f);
+}
+
 /* FNV-1a over canonical 0RRRRRGGGGGBBBBB pixels — the same value the Rust harness computes from
  * its own BGR555 framebuffer, so the two are directly comparable. */
 static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
-    if (d && (w != SCENE_W || h != SCENE_H + FIRST_ROW)) {
+    /* What the declared extraction requires this frame to be. `hires-even` samples every other
+     * column of a 512-wide picture -- the subscreen half, the one all three references agree on --
+     * and every other ROW where the host doubled the height too (Mesen2 line-doubles; snes9x, as
+     * measured 2026-08-02, emits 512x224 and does not). */
+    const unsigned want_w = (want_extract == EXTRACT_HIRES_EVEN) ? SCENE_W * 2u : SCENE_W;
+    const unsigned xstep  = (want_extract == EXTRACT_HIRES_EVEN) ? 2u : 1u;
+    const unsigned ystep  = (d && h >= (SCENE_H + FIRST_ROW) * 2u) ? 2u : 1u;
+    if (d && (w != want_w || h < (SCENE_H + FIRST_ROW) * ystep)) {
         /* Logged ONCE per distinct geometry, not per frame: a rejected frame leaves the previous
          * hash standing, which is silent by design for duped frames but is exactly the wrong kind
          * of quiet for a geometry violation. MEASURED 2026-08-01: snes9x emits 256x224 normally and
@@ -125,11 +191,13 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
         if (w != last_w || h != last_h) {
             last_w = w;
             last_h = h;
-            fprintf(stderr, "accuracysnes: out-of-contract frame %ux%u (want %ux%u), not hashed\n",
-                    w, h, SCENE_W, SCENE_H + FIRST_ROW);
+            fprintf(stderr,
+                    "accuracysnes: out-of-contract frame %ux%u (want %ux%u for extraction %u), "
+                    "not hashed\n",
+                    w, h, want_w, (SCENE_H + FIRST_ROW) * ystep, want_extract);
         }
     }
-    if (!d || w != SCENE_W || h != SCENE_H + FIRST_ROW) {
+    if (!d || w != want_w || h != (SCENE_H + FIRST_ROW) * ystep) {
         /* A duped frame arrives as a NULL pointer; a hi-res or overscan frame is outside the
          * contract. Either way the previous hash stands rather than being silently replaced.
          *
@@ -144,14 +212,14 @@ static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
     }
     uint64_t hash = 0xcbf29ce484222325ull;
     for (unsigned y = 0; y < SCENE_H; y++) {
-        const uint8_t *row = (const uint8_t *)d + (size_t)(y + FIRST_ROW) * p;
+        const uint8_t *row = (const uint8_t *)d + (size_t)(y + FIRST_ROW) * ystep * p;
         for (unsigned x = 0; x < SCENE_W; x++) {
             unsigned r, g, b;
             if (pixel_format == FMT_XRGB8888) {
-                uint32_t v = ((const uint32_t *)row)[x];
+                uint32_t v = ((const uint32_t *)row)[x * xstep];
                 r = (v >> 19) & 0x1F; g = (v >> 11) & 0x1F; b = (v >> 3) & 0x1F;
             } else {
-                uint16_t v = ((const uint16_t *)row)[x];
+                uint16_t v = ((const uint16_t *)row)[x * xstep];
                 if (pixel_format == FMT_RGB565) {
                     /* Green is 6 bits here because the core widened a 5-bit channel; dropping the
                      * low bit recovers the original rather than inventing precision. */
@@ -396,6 +464,11 @@ int main(int argc, char **argv) {
         static bool got[MAX_SCENES];
         static unsigned sightings[MAX_SCENES];
         static uint16_t px[MAX_SCENES][SCENE_W * SCENE_H];
+        /* Per-scene extraction, read from the manifest the SAME BUILD wrote next to the ROM. Read
+         * rather than hard-coded so this host cannot drift from the Lua and Rust ones; a rule this
+         * host does not implement is a hard error, never a fallback to `direct`. */
+        static unsigned extract_of[MAX_SCENES];
+        load_extractions(argv[2], extract_of, MAX_SCENES);
         unsigned scene_frames = 0;
         bool over_range = false;
         while (scene_frames < max_frames && wram[SCENE_DONE] != 0x5A) {
@@ -419,6 +492,10 @@ int main(int argc, char **argv) {
             }
             if (id != 0) {
                 sightings[id - 1]++;
+                /* Arm the extraction for the NEXT frame this scene renders. The ID is only
+                 * readable after the run, and the capture takes the SECOND sighting, so the rule
+                 * is always in place by the frame that is actually hashed. */
+                want_extract = extract_of[id - 1];
             }
             /* The SECOND frame of the published window, by agreement with the in-repo harness. A
              * host samples WRAM at its own frame boundary, which need not be the one the cart's

@@ -70,6 +70,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-scene capture extraction (`Scene::extract`), and the Mode-5 divergence it found on its first
+  run.** Hi-res scenes were parked behind "widen the capture region"; measuring showed that framing
+  was wrong (`docs/adr/0013`, 2026-08-02 supplement). The hosts do not agree on the *shape* of a
+  hi-res frame — snes9x emits `512x224`, Mesen2 `512x478` because it line-doubles — so what is
+  needed is not a bigger hash but a rule for reducing whatever a host emits to the canonical
+  256x224 sample.
+
+  `Scene` gains an `extract` field (`Direct` | `HiResEven`), emitted as `build/scenes.tsv`'s fourth
+  column so the rule travels with the scene rather than being compiled into any host. All three
+  hosts honour it, and **a host meeting a rule it does not implement rejects the scene** rather than
+  falling back to `Direct` — falling back would silently hash the left half of a hi-res picture,
+  which is the failure the exact-geometry checks were just added to stop.
+
+  The first hi-res scene (`c5-mode5-hires-16px-tiles`, `C5.15`) diverged immediately:
+
+  | host | frame emitted | hash of the extracted sample |
+  |---|---|---|
+  | snes9x | `512x224` | `0xbcb8d1c2bec08325` |
+  | Mesen2 | `512x478` | `0xbcb8d1c2bec08325` |
+  | **RustySNES** | 512 wide | **`0xd8dad9b9cb91e325`** |
+
+  The two references agree **bit-for-bit** despite different geometries and entirely different
+  extraction paths, which is this project's signature for a real defect rather than a broken test.
+  Consistent with `docs/STATUS.md` already recording hi-res as "real-title validation still open";
+  this is the first automated evidence of what that gap is.
+
+  The scene is left **unblessed** deliberately. Rule 4 would permit blessing at the reference value,
+  but that turns the scene gate red on a live finding — an unblessed scene does not fail the gate,
+  so the finding is preserved without taking the tree red. Blessing follows the fix.
+
 - **A third coverage tier for assertions the cart physically cannot observe — `G1.06` and
   `G1.18`.** Both were known-coverable and unrepresentable: the coverage report counted on-cart and
   scene covers only, so a row whose stimulus comes from outside the cartridge had nowhere to go.
