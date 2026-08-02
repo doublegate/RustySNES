@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`E3.06` polls BOTH timers; a single end-of-interval read measured a phase, not a count.** The row
+  compares timer 2's rate against timer 0's over one interval. Timer 2 was already accumulated across
+  polls — that was the earlier fix for `TnOUT`'s four-bit ceiling — but timer 0 was still read
+  **exactly once**, at the end, on the reasoning that a handful of ticks is nowhere near its own wrap.
+  True about magnitude, and silent about phase: one read samples whatever sub-tick phase the previous
+  test left the timer in. `$F1`'s enable-raise resets a timer's stage-2 and stage-3 state (`E3.02`)
+  but nothing resets stage 0, so the reading was reproducible only while nothing before it disturbed
+  that phase.
+
+  It is not a hypothetical. Authoring a row that drives timer 2 hard (an SPC700 cycle-cost instrument)
+  broke `E3.06` **on the battery's second run and not its first** — the residue crosses the run
+  boundary. The band was not the problem and was not widened to admit it: **the row is right and its
+  instrument was one read short.**
+
+  Both counters are now accumulated in the same poll loop, over 32 passes rather than 24, so neither
+  side carries a phase. The comparison is quantisation-honest for the first time: each accumulated
+  count is exact to ±1, so `8 x T0` carries ±8 and the difference ±9 — the previous ±6 was tighter
+  than its own instrument could support, and passed only because the two phases happened to correlate.
+  The band is now ±10 and still discriminating by a wide margin: a core running every timer from the
+  8 kHz stage lands some ninety ticks out. Measured across hosts, the same interval yields T0 = 12-13
+  and T2 = 99 — the one-tick spread in T0 is precisely the sensitivity that ±6 could not absorb.
+
 - **`C11.12` is unauthorable, verified two ways — there is nothing to assert.** Checked rather than
   assumed: the row's subject ("Mode 7 scroll offset latch timing") appears exactly **twice** in
   `ref-docs/`, both times as a game-compatibility table row naming NHL '94, with **no behavioural

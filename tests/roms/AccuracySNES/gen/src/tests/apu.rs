@@ -8306,32 +8306,18 @@ fn e6_02d() -> Test {
     )
 }
 
-/// Timer 2 counts **eight times faster** than timer 0 at the same divider.
+/// Build `E3.06`'s SPC700 program: run timers 0 and 2 over one interval, accumulating BOTH.
 ///
-/// The two timers are fed from different taps of the same clock: `T0` and `T1` from an 8 kHz stage,
-/// `T2` from a 64 kHz one, so `TnDIV` means eight times as much wall time on `T0` as on `T2`. A
-/// core that runs all three timers off one rate is the obvious mistake, and it is invisible to
-/// every other timer test on this cart — `E3.01`, `E3.05` and `E2.01` all use `T0` alone, and a
-/// uniform-rate core passes all of them.
-///
-/// Both timers run over the *same* interval, started by one write and stopped by another, so this
-/// is a ratio rather than two independent measurements: whatever the interval actually was, `T2`
-/// must show about eight times what `T0` does. The interval is chosen short enough that `T2`'s
-/// four-bit counter cannot wrap — a wrap would read as a *small* number and look like a slow timer,
-/// which is the one failure this test could not tell from a pass.
-///
-/// The assertion is a pair of ranges, not two exact counts. Where the interval falls relative to
-/// each timer's internal divider phase decides whether the last tick lands inside it, so ±1 is not
-/// a defect; a factor of eight is far outside that. A uniform-rate core reads `$01` where this
-/// wants nine or more.
-fn e3_06() -> Test {
-    let mut prog = Spc::new();
+/// Split out of [`e3_06`] because the reasoning below is longer than the code, and the code is
+/// longer than one screen once both accumulators are in the loop.
+fn e3_06_program(prog: &mut Spc) {
     prog.mov_x_imm(0xEF)
         .mov_sp_x()
         .mov_dp_imm(0xFA, 0x01) // T0DIV = 1
         .mov_dp_imm(0xFC, 0x01) // T2DIV = 1
         .mov_dp_imm(0x10, 0x00) // accumulated timer-2 ticks
         .mov_dp_imm(0x11, 0x00) // poll counter
+        .mov_dp_imm(0x13, 0x00) // accumulated timer-0 ticks
         .mov_a_dp(0xFD) // drain both counters so the interval starts from zero
         .mov_a_dp(0xFF)
         .mov_dp_imm(0xF1, 0x85); // enable timers 0 and 2 together; bit 7 keeps the IPL mapped
@@ -8343,8 +8329,18 @@ fn e3_06() -> Test {
     // instrument's ceiling. ares read 0 here where RustySNES read 10, and the row could not tell
     // "timer 2 wrapped" from "timer 2 is not running at 64 kHz".
     //
-    // Each pass is ~32 SPC cycles and timer 2 ticks every 32, so every read returns 0, 1 or 2 and
-    // the running sum cannot lose a tick however long the interval gets.
+    // BOTH timers are polled, and that is the 2026-08-02 correction. Timer 2 was already polled;
+    // timer 0 was read exactly ONCE at the end, on the reasoning that a handful of ticks is nowhere
+    // near its four-bit wrap. True about magnitude, and silent about PHASE -- a single read samples
+    // whatever sub-tick phase the previous test left timer 0 in, so the reading was reproducible
+    // only as long as nothing before it disturbed that phase. Adding a row that drives timer 2 hard
+    // (the `E2.10` cycle instrument) broke it on the battery RESTART, where the residue crosses the
+    // boundary: `$F1`'s enable-raise resets stage2/stage3 (`E3.02`) but nothing resets stage0.
+    // Accumulating both removes the phase from both sides.
+    //
+    // Each pass is ~51 SPC cycles. Timer 2 ticks every 16 opcode cycles and timer 0 every 128, so
+    // every T2OUT read returns 0-4 and every T0OUT read 0 or 1 -- neither can lose a tick however
+    // long the interval runs, and the byte accumulators stay well short of wrapping.
     let poll = prog.here();
     prog.mov_a_dp(0xFF) // T2OUT, read-and-clear
         .mov_dp_a(0x12)
@@ -8352,26 +8348,62 @@ fn e3_06() -> Test {
         .clrc()
         .adc_a_dp(0x12)
         .mov_dp_a(0x10)
+        .mov_a_dp(0xFD) // T0OUT, read-and-clear, in the SAME loop
+        .mov_dp_a(0x12)
+        .mov_a_dp(0x13)
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x13)
         .inc_dp(0x11)
         .mov_a_dp(0x11)
-        .cmp_a_imm(0x18); // 24 passes: enough for timer 0 to tick two or three times
+        .cmp_a_imm(0x20); // 32 passes: ~1630 cycles, so timer 0 ticks a dozen times and timer 2 ~100
     prog.bne_back(poll);
 
     prog.mov_dp_imm(0xF1, 0x80) // stop them together
-        .mov_a_dp(0xFD) // timer 0, read once -- a handful of ticks, nowhere near its own wrap
+        .mov_a_dp(0x13) // the ACCUMULATED timer-0 ticks, not a single end-of-interval read
         .mov_dp_a(PORT2)
         .mov_a_dp(0x10)
         .mov_dp_a(PORT3)
         .mov_a_imm(DONE)
         .mov_dp_a(PORT0)
         .release_to_ipl();
+}
+
+/// Timer 2 counts **eight times faster** than timer 0 at the same divider.
+///
+/// The two timers are fed from different taps of the same clock: `T0` and `T1` from an 8 kHz stage,
+/// `T2` from a 64 kHz one, so `TnDIV` means eight times as much wall time on `T0` as on `T2`. A
+/// core that runs all three timers off one rate is the obvious mistake, and it is invisible to
+/// every other timer test on this cart — `E3.01`, `E3.05` and `E2.01` all use `T0` alone, and a
+/// uniform-rate core passes all of them.
+///
+/// Both timers run over the *same* interval, started by one write and stopped by another, so this
+/// is a ratio rather than two independent measurements: whatever the interval actually was, `T2`
+/// must show about eight times what `T0` does. **Both are accumulated across polls**, which is what
+/// keeps `TnOUT`'s four-bit read-and-clear counter out of the answer — a wrap would read as a
+/// *small* number and look like a slow timer, the one failure this test could not tell from a pass.
+///
+/// Polling both sides is also what makes the row reproducible. A single end-of-interval read
+/// samples whatever sub-tick phase the previous test left that timer in, and nothing resets a
+/// timer's stage 0 — so the reading was stable only while nothing upstream disturbed the phase, and
+/// a later row that drove timer 2 hard broke it on the battery's *second* run.
+///
+/// The assertion is a range, not two exact counts. Each accumulated count is exact to ±1, so `8 x
+/// T0` carries ±8 and their difference ±9; the band is ±10. A factor of eight is far outside that —
+/// a core running every timer from the 8 kHz stage lands some ninety ticks out.
+fn e3_06() -> Test {
+    let mut prog = Spc::new();
+    e3_06_program(&mut prog);
 
     let mut a = Asm::new();
     upload_and_run(&mut a, &prog);
     a.l("rep #$30");
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
-    a.record(266, "E3.06 timer 0 ticks over the interval");
+    a.record(
+        266,
+        "E3.06 timer 0 ticks, ACCUMULATED across polls (no end-of-interval phase)",
+    );
     a.l("lda f:$7E0102");
     a.l("and #$00FF");
     a.record(
@@ -8379,12 +8411,17 @@ fn e3_06() -> Test {
         "E3.06 timer 2 ticks, ACCUMULATED across polls (no 4-bit ceiling)",
     );
 
-    a.c("Timer 0 first: the interval has to contain a couple of its ticks for a ratio to exist.");
+    a.c(
+        "Timer 0 first: the interval has to contain several of its ticks for a ratio to exist. The",
+    );
+    a.c("band is wide because the poll loop's cycle cost is a per-core detail the ratio below is");
+    a.c("designed to be insensitive to; this guard only has to reject `nothing ticked` and a run");
+    a.c("length that would wrap a byte accumulator.");
     a.l("lda f:$7E0101");
     a.l("and #$00FF");
     a.assert_a16_range(
-        1,
         6,
+        20,
         "timer 0 did not tick over this interval, or ticked far more than the poll loop allows for \
          — either way the interval is not the one this test needs and the ratio below means nothing",
     );
@@ -8406,14 +8443,15 @@ fn e3_06() -> Test {
     a.l("sec");
     a.l("sbc f:$7E01F0     ; the signed error against the ideal ratio");
     a.l("clc");
-    a.l("adc #$0006        ; biased by 6 so the allowed band is 0..12 rather than -6..+6");
+    a.l("adc #$000A        ; biased by 10 so the allowed band is 0..20 rather than -10..+10");
     a.l("and #$00FF");
     a.assert_a16_range(
         0,
-        12,
-        "timer 2 did not count within six ticks of eight times timer 0 over the same interval, so \
+        20,
+        "timer 2 did not count within ten ticks of eight times timer 0 over the same interval, so \
          it is not running from the 64 kHz stage — a core running every timer at 8 kHz lands near \
-         a seventh of the expected count. The two raw counts are in slots 266 and 267",
+         a seventh of the expected count, which is some ninety ticks out. The two raw counts are \
+         in slots 266 and 267",
     );
     apu_timeout_arm(&mut a);
     a.finish(
