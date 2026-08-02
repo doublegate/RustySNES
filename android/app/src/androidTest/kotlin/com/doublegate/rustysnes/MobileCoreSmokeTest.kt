@@ -1,6 +1,7 @@
 package com.doublegate.rustysnes
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -56,25 +57,38 @@ class MobileCoreSmokeTest {
         )
     }
 
+    /** AccuracySNES's HiROM image, packaged as a test asset by Gradle's `copyTestRom`. */
+    private fun testRom(): ByteArray =
+        InstrumentationRegistry.getInstrumentation().context.assets
+            .open("accuracysnes-hirom.sfc").use { it.readBytes() }
+
     /**
-     * `drainAudio` crosses the boundary and returns a well-formed **interleaved stereo** buffer.
+     * A **real cart boots on the device**, and only then is the audio buffer asserted.
      *
-     * It asserts an even length, not a non-destructive contract. The first version of this test
-     * called `drainAudio` twice and asserted the two counts matched, claiming to pin the documented
-     * non-destructive behaviour — but a no-ROM frame produces **no audio at all** (measured:
-     * `first=0 second=0`), so `0 == 0` passed and proved nothing. That is a vacuous test: it would
-     * have gone on passing had the contract inverted.
+     * This test took two wrong turns, both of the same kind. It first asserted that two successive
+     * `drainAudio()` calls return equal counts, claiming to pin the documented non-destructive
+     * contract; then that the buffer length is even, claiming to pin interleaved stereo. A no-ROM
+     * frame produces **no audio at all** (measured on the host: `first=0 second=0`), so the first
+     * passed on `0 == 0` and the second on `0 % 2 == 0`. Neither could fail for the reason it named.
      *
-     * The real contract is covered where it can be, host-side, by
-     * `rustysnes-mobile`'s own `drain_audio_returns_interleaved_stereo_samples`, which loads a ROM
-     * first. This test's job is the bridge, and an even length is what the bridge can actually
-     * prove without a ROM the picker has not been given.
+     * The fix is not a better assertion, it is a cart. `docs/mobile-readiness.md` records that no
+     * ROM had ever actually booted on a device or simulator; loading one here closes that and makes
+     * every assertion below capable of failing.
      */
     @Test
-    fun drain_audio_returns_a_well_formed_interleaved_buffer() {
+    fun a_real_cart_boots_and_produces_audio() {
         val core = MobileCore(MobileRegion.NTSC)
-        core.runFrame()
+        core.loadRom(testRom())
+        assertTrue("the cart did not load", core.romLoaded())
+
+        // Eight frames for margin, not because eight are needed: measured on the host, a booted
+        // AccuracySNES cart emits 1066 interleaved samples from the FIRST frame. Stating that
+        // rather than a plausible "the APU needs the IPL handshake first" — which the measurement
+        // disproves — keeps the comment something a reader can rely on.
+        repeat(8) { core.runFrame() }
+
         val audio = core.drainAudio()
+        assertTrue("a booted cart produced no audio at all", audio.isNotEmpty())
         assertEquals(
             "drainAudio must return interleaved stereo, so its length is always even",
             0,

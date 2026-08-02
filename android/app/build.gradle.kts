@@ -53,6 +53,9 @@ android {
         // sources automatically.
         getByName("androidTest") {
             kotlin.srcDirs("src/androidTest/kotlin")
+            // The instrumented smoke test loads a REAL cart, so it needs one packaged with it.
+            // Copied in by `copyTestRom` below rather than checked in twice.
+            assets.srcDirs("src/androidTest/assets")
         }
     }
 }
@@ -132,8 +135,24 @@ tasks.register<Exec>("uniffiBindgenMonetization") {
 android.sourceSets.getByName("main").kotlin.srcDir("build/generated/uniffi/uniffi")
 android.sourceSets.getByName("main").kotlin.srcDir("build/generated/uniffi-monetization/uniffi")
 
+// AccuracySNES's HiROM image (64 KB) as an instrumented-test asset.
+//
+// This project's own cart, dual-licensed with the repo, so unlike every commercial ROM it can be
+// packaged into a test APK. It is what turns the smoke test from "the bindings load" into "a real
+// cart boots on a device" -- `docs/mobile-readiness.md` records that no ROM had ever actually
+// booted on a device or simulator, and an emulator bridge test with no ROM cannot fix that.
+//
+// The HiROM variant, not the 256 KB LoROM one, because the test only needs a cart that runs and
+// this is the smallest of the four the generator emits.
+val copyTestRom = tasks.register<Copy>("copyTestRom") {
+    from(rootProject.projectDir.parentFile.resolve("tests/roms/AccuracySNES/build")) {
+        include("accuracysnes-hirom.sfc")
+    }
+    into(project.projectDir.resolve("src/androidTest/assets"))
+}
+
 tasks.named("preBuild") {
-    dependsOn("copyCargoLibs", "uniffiBindgen", "uniffiBindgenMonetization")
+    dependsOn("copyCargoLibs", "uniffiBindgen", "uniffiBindgenMonetization", copyTestRom)
 }
 
 dependencies {
