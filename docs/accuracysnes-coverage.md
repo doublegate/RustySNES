@@ -40,7 +40,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `D2` | 14 | 6 | 0 | 0 | D2.01, D2.02, D2.08, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
 | `D3` | 2 | 0 | 0 | 0 | D3.01, D3.02 |
 | `E1` | 15 | 14 | 0 | 0 | E1.11 |
-| `E2` | 10 | 9 | 0 | 0 | E2.10 |
+| `E2` | 10 | 10 | 0 | 0 | — |
 | `E3` | 14 | 12 | 0 | 0 | E3.07, E3.12 |
 | `E4` | 11 | 7 | 0 | 0 | E4.05, E4.07, E4.09, E4.10 |
 | `E5` | 13 | 13 | 0 | 0 | — |
@@ -52,7 +52,7 @@ Every sub-group of Part V is enumerated, so this is a **complete** statement of 
 | `F1` | 22 | 13 | 0 | 0 | F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
 | `G1` | 18 | 15 | 0 | 2 | G1.13 |
 
-**302 of 443** enumerated assertion rows covered by an on-cart test, plus **55** covered only by a rendered scene (`docs/adr/0013`) and **2** covered only by a host-side test — **359 of 443** in total.
+**303 of 443** enumerated assertion rows covered by an on-cart test, plus **55** covered only by a rendered scene (`docs/adr/0013`) and **2** covered only by a host-side test — **360 of 443** in total.
 
 The three columns are kept apart on purpose, in descending order of what the evidence is worth. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden; a **host-side** cover is this project testing its own code, which is the one thing AccuracySNES exists to stop being the only evidence. The host tier is admitted only where the cart *physically cannot* observe the assertion — the stimulus comes from outside the cartridge, or the subject is the loader rather than the machine — and every entry names the test and the reason (`dossier.rs::HOST_COVERED`). Adding the columns into one figure would quietly change what the number claims.
 
@@ -135,6 +135,7 @@ Declared in `gen/src/scenes.rs`. Each is reported by the host framebuffer oracle
 
 ## Tests with no enumerated assertion
 
+- **`E2.10i`** — The apparatus for E2.10's 256-opcode cycle sweep, plus the three opcodes that prove it works (NOP = 2, XCN = 5, MUL YA = 9). It implements no enumerated assertion because E2.10 is a FULL 256-opcode sweep and three opcodes are not that -- claiming the row from a validation set is exactly the overclaim the provenance tier exists to stop. It is a golden so the measured tick totals cross-validate across emulators. E2.10 itself is now claimed by the full sweep in tests/apu_sweep.rs; this row stays because its three raw tick totals cross-validate directly, where the sweep's verdict is a pass/fail count
 - **`B4.16`** — The before/after guard for T-06-A. It records where an H-IRQ fires at an HTIME below the long dots and one above, because nothing else covers raster-IRQ position -- so the dot-model change would pass its own acceptance criteria while shifting every H-IRQ. It implements no enumerated assertion of its own; B4.07 and B4.14 own the H-IRQ rows
 - **`E3.11c`** — DSP global-register addressing. The companion to E3.11b: the global block is decoded from the same latch by a different part of the address, so a core that gets the voice registers right and aliases the globals passes one and fails the other
 - **`E3.11b`** — DSP register addressing through the $F2/$F3 latch. Not an enumerated assertion of its own: it is the mechanism every other DSP assertion is reached through, so a core that mis-decodes it makes those tests meaningless rather than failing

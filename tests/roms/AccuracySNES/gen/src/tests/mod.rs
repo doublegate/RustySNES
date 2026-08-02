@@ -8,6 +8,7 @@
 //! each remaining block, and `to-dos/ROADMAP.md` carries the T-04-* ticket IDs.
 
 pub mod apu;
+pub mod apu_sweep;
 pub mod bus;
 pub mod cart;
 pub mod cpu;
@@ -27,6 +28,7 @@ pub fn all() -> Vec<Test> {
     v.extend(bus::all());
     v.extend(dma::all());
     v.extend(apu::all());
+    v.push(apu_sweep::e2_10());
     v.extend(input::all());
     v.extend(cart::all());
     v.extend(sweep::all());

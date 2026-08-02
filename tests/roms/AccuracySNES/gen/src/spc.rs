@@ -26,6 +26,19 @@ pub struct Spc {
     bytes: Vec<u8>,
 }
 
+/// A forward branch waiting for its destination, from [`Spc::branch_fwd`].
+///
+/// # Why forward branches need a mechanism at all
+///
+/// [`Spc::bne_back`] computes its displacement as it is emitted, because the target already
+/// exists. A forward branch cannot: the gap is not known until the code it jumps over has been
+/// written. Rather than let a caller hand-count that gap — right until an instruction between the
+/// two moves, the exact failure [`Spc::release_to_ipl`] documents — the emitter writes a
+/// placeholder and [`Spc::patch_fwd`] fills it in from the two offsets.
+#[derive(Debug)]
+#[must_use = "a forward branch that is never patched branches to itself"]
+pub struct Fwd(usize);
+
 impl Spc {
     /// Start an empty program.
     #[must_use]
@@ -180,6 +193,137 @@ impl Spc {
         self.push(&[0x5F, lo, hi]); // JMP past the data
         self.push(data);
         entry
+    }
+
+    /// Emit a forward branch with `opcode` and a placeholder displacement. See [`Fwd`].
+    pub fn branch_fwd(&mut self, opcode: u8) -> Fwd {
+        self.push(&[opcode, 0x00]);
+        Fwd(self.bytes.len() - 1)
+    }
+
+    /// `BNE` forward. See [`Fwd`].
+    pub fn bne_fwd(&mut self) -> Fwd {
+        self.branch_fwd(0xD0)
+    }
+
+    /// `BEQ` forward. See [`Fwd`].
+    pub fn beq_fwd(&mut self) -> Fwd {
+        self.branch_fwd(0xF0)
+    }
+
+    /// `BCC` forward. See [`Fwd`].
+    pub fn bcc_fwd(&mut self) -> Fwd {
+        self.branch_fwd(0x90)
+    }
+
+    /// Point a [`Fwd`] at the current offset.
+    ///
+    /// # Panics
+    ///
+    /// If the gap is beyond a branch's reach. A displacement that does not fit is a program that
+    /// silently jumps somewhere else, so it fails the build instead.
+    /// Taken by value, and clippy's `needless_pass_by_value` is allowed rather than obeyed: the
+    /// point of consuming the handle is that a forward branch cannot be patched twice, and a
+    /// `&Fwd` would give that back.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn patch_fwd(&mut self, fwd: Fwd) -> &mut Self {
+        let Fwd(at) = fwd;
+        let after = at + 1;
+        let rel = i64::try_from(self.bytes.len()).expect("offset fits i64")
+            - i64::try_from(after).expect("offset fits i64");
+        let rel = i8::try_from(rel).expect("forward branch target is out of reach");
+        self.bytes[at] = rel.to_le_bytes()[0];
+        self
+    }
+
+    /// `MOV Y,A` — `$FD`.
+    pub fn mov_y_a(&mut self) -> &mut Self {
+        self.push(&[0xFD])
+    }
+
+    /// `MOV X,dp` — `$F8`.
+    pub fn mov_x_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xF8, dp])
+    }
+
+    /// `JMP !abs` with a placeholder target, for a forward jump past a branch's reach.
+    ///
+    /// A [`Fwd`] branch covers ±127 bytes; the opcode sweep has to jump over its whole per-opcode
+    /// body, which is several hundred. `base` is where the program will be uploaded, because a
+    /// `JMP` names an absolute address and the assembler only knows offsets — the two are the same
+    /// number plus that base, and every Group E program is uploaded to a fixed one.
+    pub fn jmp_fwd(&mut self) -> Fwd {
+        self.push(&[0x5F, 0x00, 0x00]);
+        Fwd(self.bytes.len() - 2)
+    }
+
+    /// Point a [`Spc::jmp_fwd`] at the current offset, given the program's upload address.
+    /// Consumed for the same reason as [`Spc::patch_fwd`].
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn patch_jmp_fwd(&mut self, fwd: Fwd, base: u16) -> &mut Self {
+        let Fwd(at) = fwd;
+        let target = base + u16::try_from(self.bytes.len()).expect("a program is smaller than RAM");
+        let [lo, hi] = target.to_le_bytes();
+        self.bytes[at] = lo;
+        self.bytes[at + 1] = hi;
+        self
+    }
+
+    /// `JMP !abs` back to an offset recorded by [`Spc::here`], given the program's upload address.
+    ///
+    /// The long-range counterpart of [`Spc::bne_back`], for a loop whose body is bigger than a
+    /// branch can span. See [`Spc::jmp_fwd`] on why the base has to be supplied.
+    pub fn jmp_back(&mut self, target: usize, base: u16) -> &mut Self {
+        let addr = base + u16::try_from(target).expect("a program is smaller than RAM");
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0x5F, lo, hi])
+    }
+
+    /// `MOV !abs+X,A` — `$D5`. The indexed absolute *write*, the counterpart of
+    /// [`Spc::mov_a_abs_x`], and how the opcode sweep lays a block down byte by byte.
+    pub fn mov_abs_x_a(&mut self, addr: u16) -> &mut Self {
+        let [lo, hi] = addr.to_le_bytes();
+        self.push(&[0xD5, lo, hi])
+    }
+
+    /// `MOV X,A` — `$5D`.
+    pub fn mov_x_a(&mut self) -> &mut Self {
+        self.push(&[0x5D])
+    }
+
+    /// `MOV A,X` — `$7D`.
+    pub fn mov_a_x(&mut self) -> &mut Self {
+        self.push(&[0x7D])
+    }
+
+    /// `INC X` — `$3D`.
+    pub fn inc_x_reg(&mut self) -> &mut Self {
+        self.push(&[0x3D])
+    }
+
+    /// `INC Y` — `$FC`.
+    pub fn inc_y(&mut self) -> &mut Self {
+        self.push(&[0xFC])
+    }
+
+    /// `CMP Y,#imm` — `$AD`.
+    pub fn cmp_y_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0xAD, v])
+    }
+
+    /// `AND A,#imm` — `$28`.
+    pub fn and_a_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0x28, v])
+    }
+
+    /// `SBC A,#imm` — `$A8`. Borrow is `not C`, so a plain subtraction needs `SETC` first.
+    pub fn sbc_a_imm(&mut self, v: u8) -> &mut Self {
+        self.push(&[0xA8, v])
+    }
+
+    /// `SBC A,dp` — `$A4`. See [`Spc::sbc_a_imm`] on the borrow.
+    pub fn sbc_a_dp(&mut self, dp: u8) -> &mut Self {
+        self.push(&[0xA4, dp])
     }
 
     /// `MOV A,!abs+X` — `$F5`. The indexed absolute read the IPL-ROM checksum walks with.

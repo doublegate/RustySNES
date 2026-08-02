@@ -23938,6 +23938,103 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; E2.10i — SPC cycle instrument
+; provenance: Documented (the apparatus for E2.10's 256-opcode sweep, validated against NOP = 2, XCN = 5 (also E1.14) and MUL YA = 9 -- each independently derivable from spc700_exec.rs's read/idle sequence)
+.proc test_e2_10i
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_119)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_119
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #146
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program's done marker, but not forever: an APU that never boots would
+    ; otherwise hang the whole battery and report nothing about any other test.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 277: E2.10 instrument: 8xNOP x32, timer-2 ticks (the baseline)
+    sta f:$7EE42A
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 278: E2.10 instrument: 8xXCN x32 (expect baseline + 48)
+    sta f:$7EE42C
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 279: E2.10 instrument: 8xMUL YA x32 (expect baseline + 112)
+    sta f:$7EE42E
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; E9.02 — Noise output is bipolar
 ; provenance: Documented (fullsnes and anomie's DSP doc [ERRATA]: the noise output is highpass-filtered as a consequence of the 15-bit shift register being interpreted as the top bits of a signed 16-bit sample)
 .proc test_e9_02
@@ -23966,11 +24063,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_119)
+    lda #.loword(apu_prog_120)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_119
+    lda #^apu_prog_120
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -24113,6 +24210,156 @@ CATALOG_IMPL = 1
     sep #$20
     .a8
     lda #$08
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
+; E2.10 — 256-opcode cycle sweep
+; provenance: Documented (fullsnes, SNES APU SPC700 CPU instruction set)
+.proc test_e2_10
+    .a16
+    .i16
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_121)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_121
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #1905
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the done marker, but not forever — see this proc's doc comment for why the
+    ; shared wait is far too short for this one program.
+    sep #$20
+    .a8
+    lda #$00
+    sta f:$7E01F8       ; the outer pass counter, in the same scratch page E3.06 uses
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@wait:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @ran
+    rep #$30
+    .a16
+    .i16
+    inx
+    bne @wait
+    ; X wrapped: one full pass of 65536. Count it, and give up after sixteen.
+    sep #$20
+    .a8
+    lda f:$7E01F8
+    inc a
+    sta f:$7E01F8
+    cmp #$10
+    rep #$30
+    .a16
+    .i16
+    bne @wait
+    jmp @timeout
+@ran:
+    ; Copy the answers out BEFORE releasing the program: once it jumps to the IPL, the boot ROM
+    ; overwrites ports 0 and 1 with its $AA/$BB announcement.
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0100
+    lda APUIO2
+    sta f:$7E0101
+    lda APUIO3
+    sta f:$7E0102
+    ; Release: the program hands the APU back to the IPL so the NEXT test can upload at all.
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0100
+    and #$00FF
+    ; record slot 280: E2.10 opcodes disagreeing with fullsnes (expect 0)
+    sta f:$7EE430
+    lda f:$7E0101
+    and #$00FF
+    ; record slot 281: E2.10 opcodes measured (expect 231 = 256 - 25)
+    sta f:$7EE432
+    lda f:$7E0102
+    and #$00FF
+    ; record slot 282: E2.10 first disagreeing opcode ($FF = none)
+    sta f:$7EE434
+    ; Liveness first. A driver that fell over after one opcode would report no disagreements,
+    ; and a `0` in slot 280 would then read as a pass — so the count of opcodes actually
+    ; measured is asserted before anything is concluded from the count of failures.
+    lda f:$7E0101
+    and #$00FF
+    cmp #$00E7
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$00E8
+    bcc :+
+    jmp @fail1
+  :
+    ; The row itself: every measured opcode's timing agrees with the cycle count fullsnes
+    ; documents for it, to within half a cycle.
+    lda f:$7E0100
+    and #$00FF
+    cmp #$0000
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$0001
+    bcc :+
+    jmp @fail2
+  :
+    bra @pass
+@timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the sweep did not measure 231 opcodes — it either stopped early or covered a different set than the 25 documented non-straight-line exclusions. Slot 281 holds the count it reached
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; at least one opcode's measured timing disagrees with the cycle count fullsnes documents for it by more than half a cycle. Slot 280 holds how many, slot 282 the first — and one cycle is six ticks here, so a disagreement is a whole cycle or more, not rounding
+    sep #$20
+    .a8
+    lda #$04
     sta f:$7EE010
     jml test_restore
 .endproc
@@ -35010,6 +35257,20 @@ apu_prog_118:
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
 apu_prog_119:
+    .byte $CD, $EF, $BD, $8F, $01, $FC, $8F, $84, $F1, $8F, $00, $10
+    .byte $8F, $00, $11, $E4, $FF, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $E4, $FF, $C4, $12, $E4, $10, $60, $84, $12, $C4, $10
+    .byte $AB, $11, $E4, $11, $68, $20, $D0, $E5, $E4, $10, $C4, $F5
+    .byte $8F, $00, $10, $8F, $00, $11, $E4, $FF, $9F, $9F, $9F, $9F
+    .byte $9F, $9F, $9F, $9F, $E4, $FF, $C4, $12, $E4, $10, $60, $84
+    .byte $12, $C4, $10, $AB, $11, $E4, $11, $68, $20, $D0, $E5, $E4
+    .byte $10, $C4, $F6, $8F, $00, $10, $8F, $00, $11, $E4, $FF, $CF
+    .byte $CF, $CF, $CF, $CF, $CF, $CF, $CF, $E4, $FF, $C4, $12, $E4
+    .byte $10, $60, $84, $12, $C4, $10, $AB, $11, $E4, $11, $68, $20
+    .byte $D0, $E5, $E4, $10, $C4, $F7, $8F, $80, $F1, $E8, $5A, $C4
+    .byte $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F
+    .byte $C0, $FF
+apu_prog_120:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -35036,6 +35297,166 @@ apu_prog_119:
     .byte $F3, $C4, $F6, $E8, $6C, $C4, $F2, $E8, $E0, $C4, $F3, $E8
     .byte $6C, $C4, $F2, $E8, $20, $C4, $F3, $E8, $5A, $C4, $F4, $E4
     .byte $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_121:
+    .byte $5F, $1C, $08, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $01, $00, $02, $03, $02, $03, $01, $02
+    .byte $02, $03, $03, $02, $03, $01, $03, $00, $02, $00, $02, $03
+    .byte $02, $03, $03, $02, $03, $01, $02, $02, $01, $01, $03, $00
+    .byte $01, $00, $02, $03, $02, $03, $01, $02, $02, $03, $03, $02
+    .byte $03, $01, $03, $02, $12, $00, $02, $03, $02, $03, $03, $02
+    .byte $03, $01, $02, $02, $01, $01, $02, $00, $01, $00, $02, $03
+    .byte $02, $03, $01, $02, $02, $03, $03, $02, $03, $01, $03, $00
+    .byte $62, $00, $02, $03, $02, $03, $03, $02, $03, $01, $02, $02
+    .byte $01, $01, $03, $00, $01, $00, $02, $03, $02, $03, $01, $02
+    .byte $02, $03, $03, $02, $03, $01, $03, $00, $52, $00, $02, $03
+    .byte $02, $03, $03, $02, $03, $01, $02, $02, $01, $01, $02, $00
+    .byte $01, $00, $02, $03, $02, $03, $01, $02, $02, $03, $03, $02
+    .byte $03, $02, $01, $03, $42, $00, $02, $03, $02, $03, $03, $02
+    .byte $03, $01, $02, $02, $01, $01, $01, $01, $01, $00, $02, $03
+    .byte $02, $03, $01, $02, $02, $03, $03, $02, $03, $02, $01, $01
+    .byte $32, $00, $02, $03, $02, $03, $03, $02, $03, $01, $02, $02
+    .byte $01, $01, $01, $01, $01, $00, $02, $03, $02, $03, $01, $02
+    .byte $02, $03, $03, $02, $03, $02, $01, $01, $02, $00, $02, $03
+    .byte $02, $03, $03, $02, $02, $02, $02, $02, $01, $01, $03, $01
+    .byte $01, $00, $02, $03, $02, $03, $01, $02, $02, $03, $03, $02
+    .byte $03, $01, $01, $00, $22, $00, $02, $03, $02, $03, $03, $02
+    .byte $02, $02, $03, $02, $01, $01, $02, $00, $00, $01, $02, $03
+    .byte $04, $05, $06, $07, $08, $09, $0A, $0B, $0C, $0D, $0E, $0F
+    .byte $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B
+    .byte $1C, $1D, $1E, $1F, $20, $21, $22, $23, $24, $25, $26, $27
+    .byte $28, $29, $2A, $2B, $2C, $2D, $2E, $2F, $30, $31, $32, $33
+    .byte $34, $35, $36, $37, $38, $39, $3A, $3B, $3C, $3D, $3E, $3F
+    .byte $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $4A, $4B
+    .byte $4C, $4D, $4E, $4F, $50, $51, $52, $53, $54, $55, $56, $57
+    .byte $58, $59, $5A, $5B, $5C, $5D, $5E, $5F, $60, $61, $62, $63
+    .byte $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F
+    .byte $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B
+    .byte $7C, $7D, $7E, $7F, $80, $81, $82, $83, $84, $85, $86, $87
+    .byte $88, $89, $8A, $8B, $8C, $8D, $8E, $8F, $90, $91, $92, $93
+    .byte $94, $95, $96, $97, $98, $99, $9A, $9B, $9C, $9D, $9E, $9F
+    .byte $A0, $A1, $A2, $A3, $A4, $A5, $A6, $A7, $A8, $A9, $AA, $AB
+    .byte $AC, $AD, $AE, $AF, $B0, $B1, $B2, $B3, $B4, $B5, $B6, $B7
+    .byte $B8, $B9, $BA, $BB, $BC, $BD, $BE, $BF, $C0, $C1, $C2, $C3
+    .byte $C4, $C5, $C6, $C7, $C8, $C9, $CA, $CB, $CC, $CD, $CE, $CF
+    .byte $D0, $D1, $D2, $D3, $D4, $D5, $D6, $D7, $D8, $D9, $DA, $DB
+    .byte $DC, $DD, $DE, $DF, $E0, $E1, $E2, $E3, $E4, $E5, $E6, $E7
+    .byte $E8, $E9, $EA, $EB, $EC, $ED, $EE, $EF, $F0, $F1, $F2, $F3
+    .byte $F4, $F5, $F6, $F7, $F8, $F9, $FA, $FB, $FC, $FD, $FE, $FF
+    .byte $00, $00, $30, $32, $30, $00, $00, $00, $00, $31, $00, $30
+    .byte $00, $00, $00, $00, $00, $00, $30, $30, $00, $00, $00, $30
+    .byte $00, $00, $30, $00, $00, $00, $00, $00, $00, $00, $30, $32
+    .byte $30, $00, $00, $00, $00, $31, $00, $30, $00, $00, $30, $00
+    .byte $00, $00, $30, $30, $00, $00, $00, $30, $00, $00, $30, $00
+    .byte $00, $00, $30, $00, $00, $00, $30, $32, $30, $00, $00, $00
+    .byte $00, $31, $00, $30, $00, $00, $00, $00, $00, $00, $30, $30
+    .byte $00, $00, $00, $30, $00, $00, $30, $00, $00, $00, $00, $00
+    .byte $00, $00, $30, $32, $30, $00, $00, $00, $00, $31, $00, $30
+    .byte $00, $00, $30, $00, $00, $00, $30, $30, $00, $00, $00, $30
+    .byte $00, $00, $30, $00, $00, $00, $30, $00, $00, $00, $30, $32
+    .byte $30, $00, $00, $00, $00, $31, $00, $30, $00, $00, $00, $00
+    .byte $00, $00, $30, $30, $00, $00, $00, $30, $00, $00, $30, $00
+    .byte $00, $00, $00, $00, $00, $00, $30, $32, $30, $00, $00, $00
+    .byte $00, $31, $00, $30, $00, $00, $00, $00, $00, $00, $30, $30
+    .byte $00, $00, $00, $30, $00, $00, $30, $00, $00, $00, $00, $00
+    .byte $00, $00, $30, $32, $30, $00, $00, $00, $00, $00, $00, $30
+    .byte $00, $00, $00, $00, $00, $00, $30, $30, $00, $00, $00, $30
+    .byte $30, $00, $30, $00, $00, $00, $00, $00, $00, $00, $30, $32
+    .byte $30, $00, $00, $00, $00, $00, $00, $30, $00, $00, $00, $00
+    .byte $00, $00, $30, $30, $00, $00, $00, $30, $30, $00, $31, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $0E, $00, $00
+    .byte $00, $30, $0E, $00, $0E, $00, $0E, $00, $00, $00, $00, $00
+    .byte $00, $0E, $0E, $00, $30, $00, $00, $00, $00, $00, $0E, $0E
+    .byte $00, $00, $00, $00, $00, $0E, $00, $00, $00, $30, $0E, $00
+    .byte $0E, $00, $00, $00, $00, $00, $00, $00, $00, $0E, $0E, $00
+    .byte $30, $00, $00, $00, $00, $00, $00, $0E, $00, $00, $00, $00
+    .byte $00, $0E, $00, $00, $00, $30, $0E, $00, $0E, $00, $0E, $00
+    .byte $00, $00, $00, $00, $00, $0E, $0E, $00, $30, $00, $00, $00
+    .byte $00, $00, $0E, $0E, $00, $00, $00, $00, $00, $0E, $00, $00
+    .byte $00, $30, $0E, $00, $0E, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $0E, $0E, $00, $30, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $0E, $00, $00, $00, $30, $0E, $00
+    .byte $0E, $00, $00, $30, $00, $00, $00, $00, $00, $0E, $0E, $00
+    .byte $30, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $0E, $00, $00, $00, $30, $0E, $00, $0E, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $0E, $0E, $00, $30, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $0E, $00, $00
+    .byte $00, $0E, $0E, $00, $0E, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $0E, $0E, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .byte $00, $00, $00, $00, $00, $0E, $00, $00, $00, $0E, $0E, $00
+    .byte $0E, $00, $00, $00, $00, $00, $00, $00, $00, $0E, $0E, $00
+    .byte $00, $00, $30, $00, $00, $00, $00, $00, $02, $08, $04, $07
+    .byte $03, $04, $03, $06, $02, $06, $05, $04, $05, $04, $06, $08
+    .byte $04, $08, $04, $07, $04, $05, $05, $06, $05, $05, $06, $05
+    .byte $02, $02, $04, $06, $02, $08, $04, $07, $03, $04, $03, $06
+    .byte $02, $06, $05, $04, $05, $04, $07, $04, $04, $08, $04, $07
+    .byte $04, $05, $05, $06, $05, $05, $06, $05, $02, $02, $03, $08
+    .byte $02, $08, $04, $07, $03, $04, $03, $06, $02, $06, $04, $04
+    .byte $05, $04, $06, $06, $04, $08, $04, $07, $04, $05, $05, $06
+    .byte $05, $05, $04, $05, $02, $02, $04, $03, $02, $08, $04, $07
+    .byte $03, $04, $03, $06, $02, $06, $04, $04, $05, $04, $07, $05
+    .byte $04, $08, $04, $07, $04, $05, $05, $06, $05, $05, $05, $05
+    .byte $02, $02, $03, $06, $02, $08, $04, $07, $03, $04, $03, $06
+    .byte $02, $06, $05, $04, $05, $02, $04, $05, $04, $08, $04, $07
+    .byte $04, $05, $05, $06, $05, $05, $05, $05, $02, $02, $0C, $05
+    .byte $03, $08, $04, $07, $03, $04, $03, $06, $02, $06, $04, $04
+    .byte $05, $02, $04, $04, $04, $08, $04, $07, $04, $05, $05, $06
+    .byte $05, $05, $05, $05, $02, $02, $03, $04, $03, $08, $04, $07
+    .byte $04, $05, $04, $07, $02, $05, $06, $04, $05, $02, $04, $09
+    .byte $04, $08, $04, $07, $05, $06, $06, $07, $04, $05, $05, $05
+    .byte $02, $02, $08, $03, $02, $08, $04, $07, $03, $04, $03, $06
+    .byte $02, $04, $05, $03, $04, $03, $04, $00, $04, $08, $04, $07
+    .byte $04, $05, $05, $06, $03, $04, $05, $04, $02, $02, $06, $00
+    .byte $E8, $01, $E8, $01, $E8, $80, $E8, $80, $E8, $00, $E8, $00
+    .byte $E8, $FF, $68, $00, $E8, $00, $68, $FF, $E8, $7F, $88, $7F
+    .byte $E8, $00, $88, $00, $CD, $EF, $BD, $8F, $01, $FC, $8F, $84
+    .byte $F1, $8F, $00, $07, $8F, $00, $08, $8F, $FF, $09, $8F, $00
+    .byte $00, $F8, $00, $F5, $00, $03, $C4, $06, $28, $0F, $C4, $01
+    .byte $D0, $03, $5F, $01, $09, $E4, $06, $9F, $28, $0F, $C4, $02
+    .byte $8F, $00, $05, $E4, $02, $1C, $1C, $5D, $8D, $00, $F5, $00
+    .byte $08, $C4, $0C, $3D, $7D, $C4, $06, $F8, $05, $E4, $0C, $D5
+    .byte $00, $0D, $AB, $05, $F8, $06, $FC, $AD, $04, $D0, $E7, $8D
+    .byte $00, $F8, $00, $F5, $00, $04, $C4, $0C, $F5, $00, $05, $C4
+    .byte $0D, $F5, $00, $06, $C4, $0E, $F8, $05, $E4, $0C, $D5, $00
+    .byte $0D, $3D, $E4, $0D, $D5, $00, $0D, $3D, $E4, $0E, $D5, $00
+    .byte $0D, $E4, $05, $60, $84, $01, $C4, $05, $FC, $AD, $06, $D0
+    .byte $D0, $F8, $05, $E8, $20, $D5, $00, $0D, $F8, $05, $E8, $CD
+    .byte $3D, $D5, $00, $0D, $F8, $05, $E8, $ED, $3D, $3D, $D5, $00
+    .byte $0D, $F8, $05, $E8, $BD, $3D, $3D, $3D, $D5, $00, $0D, $F8
+    .byte $05, $E8, $6F, $3D, $3D, $3D, $3D, $D5, $00, $0D, $8F, $00
+    .byte $03, $8F, $00, $04, $E4, $FF, $CD, $EF, $BD, $CD, $30, $8D
+    .byte $30, $8F, $00, $30, $8F, $0E, $31, $8F, $FF, $32, $3F, $00
+    .byte $0D, $E4, $FF, $C4, $06, $E4, $04, $60, $84, $06, $C4, $04
+    .byte $AB, $03, $E4, $03, $68, $10, $D0, $DA, $F8, $00, $E4, $04
+    .byte $D5, $00, $0C, $AB, $07, $AB, $00, $E4, $00, $68, $00, $F0
+    .byte $03, $5F, $31, $08, $CD, $00, $F5, $00, $0C, $C4, $0A, $8F
+    .byte $00, $00, $F8, $00, $F5, $00, $03, $28, $0F, $F0, $2A, $F5
+    .byte $00, $07, $80, $A8, $02, $FD, $E8, $06, $CF, $60, $84, $0A
+    .byte $C4, $06, $F8, $00, $F5, $00, $0C, $80, $A4, $06, $60, $88
+    .byte $03, $68, $07, $90, $0C, $AB, $08, $E4, $09, $68, $FF, $D0
+    .byte $04, $E4, $00, $C4, $09, $AB, $00, $E4, $00, $68, $00, $D0
+    .byte $C5, $8F, $80, $F1, $E4, $08, $C4, $F5, $E4, $07, $C4, $F6
+    .byte $E4, $09, $C4, $F7, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
 .segment "CATALOG"
 .export _test_count
 .export _test_entries
@@ -35043,7 +35464,7 @@ apu_prog_119:
 .export _test_flags
 
 _test_count:
-    .word 343
+    .word 345
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -35330,7 +35751,9 @@ _test_entries:
     .faraddr test_e3_09
     .faraddr test_b2_07
     .faraddr test_e3_13
+    .faraddr test_e2_10i
     .faraddr test_e9_02
+    .faraddr test_e2_10
     .faraddr test_f1_01
     .faraddr test_f1_02
     .faraddr test_f1_03
@@ -35676,7 +36099,9 @@ _test_flags:
     .byte $01   ; E3.09
     .byte $01   ; B2.07
     .byte $01   ; E3.13
+    .byte $02   ; E2.10i
     .byte $01   ; E9.02
+    .byte $01   ; E2.10
     .byte $01   ; F1.01
     .byte $01   ; F1.02
     .byte $01   ; F1.03
@@ -36022,7 +36447,9 @@ _test_names:
     .addr @n_e3_09
     .addr @n_b2_07
     .addr @n_e3_13
+    .addr @n_e2_10i
     .addr @n_e9_02
+    .addr @n_e2_10
     .addr @n_f1_01
     .addr @n_f1_02
     .addr @n_f1_03
@@ -36931,9 +37358,15 @@ _test_names:
 @n_e3_13:
     .byte 20
     .byte "Regs shadow into RAM"
+@n_e2_10i:
+    .byte 20
+    .byte "SPC cycle instrument"
 @n_e9_02:
     .byte 23
     .byte "Noise output is bipolar"
+@n_e2_10:
+    .byte 22
+    .byte "256-opcode cycle sweep"
 @n_f1_01:
     .byte 21
     .byte "Manual pad read order"
@@ -37120,7 +37553,7 @@ _test_names:
 .export _page_tests
 
 _page_count:
-    .word 51
+    .word 52
 
 _page_names:
     .addr @pn_0
@@ -37174,6 +37607,7 @@ _page_names:
     .addr @pn_48
     .addr @pn_49
     .addr @pn_50
+    .addr @pn_51
 @pn_0:
     .byte 18
     .byte "65816: XCE & FLAGS"
@@ -37286,45 +37720,48 @@ _page_names:
     .byte 20
     .byte "APU: SPC700 TIMING 2"
 @pn_37:
-    .byte 17
-    .byte "APU: SPC700 FLAGS"
+    .byte 19
+    .byte "APU: SPC700 FLAGS 1"
 @pn_38:
+    .byte 19
+    .byte "APU: SPC700 FLAGS 2"
+@pn_39:
     .byte 15
     .byte "APU: DSP VOICES"
-@pn_39:
+@pn_40:
     .byte 13
     .byte "APU: DSP ECHO"
-@pn_40:
-    .byte 20
-    .byte "APU: DSP REGISTERS 1"
 @pn_41:
     .byte 20
-    .byte "APU: DSP REGISTERS 2"
+    .byte "APU: DSP REGISTERS 1"
 @pn_42:
-    .byte 13
-    .byte "APU: TIMERS 1"
+    .byte 20
+    .byte "APU: DSP REGISTERS 2"
 @pn_43:
     .byte 13
-    .byte "APU: TIMERS 2"
+    .byte "APU: TIMERS 1"
 @pn_44:
-    .byte 19
-    .byte "APU: DSP ENVELOPE 1"
+    .byte 13
+    .byte "APU: TIMERS 2"
 @pn_45:
     .byte 19
-    .byte "APU: DSP ENVELOPE 2"
+    .byte "APU: DSP ENVELOPE 1"
 @pn_46:
+    .byte 19
+    .byte "APU: DSP ENVELOPE 2"
+@pn_47:
     .byte 15
     .byte "APU: DSP MIXING"
-@pn_47:
-    .byte 20
-    .byte "INPUT: CONTROLLERS 1"
 @pn_48:
     .byte 20
-    .byte "INPUT: CONTROLLERS 2"
+    .byte "INPUT: CONTROLLERS 1"
 @pn_49:
+    .byte 20
+    .byte "INPUT: CONTROLLERS 2"
+@pn_50:
     .byte 16
     .byte "POWER-ON STATE 1"
-@pn_50:
+@pn_51:
     .byte 16
     .byte "POWER-ON STATE 2"
 
@@ -37366,7 +37803,8 @@ _page_len:
     .byte 4
     .byte 10
     .byte 4
-    .byte 9
+    .byte 10
+    .byte 1
     .byte 6
     .byte 2
     .byte 10
@@ -37420,19 +37858,20 @@ _page_off:
     .word 237
     .word 247
     .word 251
-    .word 260
-    .word 266
+    .word 261
+    .word 262
     .word 268
-    .word 278
-    .word 282
-    .word 292
-    .word 295
-    .word 305
-    .word 312
-    .word 319
-    .word 329
-    .word 332
-    .word 342
+    .word 270
+    .word 280
+    .word 284
+    .word 294
+    .word 297
+    .word 307
+    .word 314
+    .word 321
+    .word 331
+    .word 334
+    .word 344
 
 _page_tests:
     .word 0
@@ -37486,8 +37925,6 @@ _page_tests:
     .word 70
     .word 71
     .word 72
-    .word 308
-    .word 309
     .word 310
     .word 311
     .word 312
@@ -37521,6 +37958,8 @@ _page_tests:
     .word 340
     .word 341
     .word 342
+    .word 343
+    .word 344
     .word 30
     .word 31
     .word 32
@@ -37695,6 +38134,8 @@ _page_tests:
     .word 225
     .word 226
     .word 227
+    .word 283
+    .word 285
     .word 195
     .word 196
     .word 274
@@ -37716,7 +38157,7 @@ _page_tests:
     .word 246
     .word 247
     .word 248
-    .word 283
+    .word 284
     .word 206
     .word 207
     .word 208
@@ -37754,8 +38195,6 @@ _page_tests:
     .word 268
     .word 269
     .word 270
-    .word 284
-    .word 285
     .word 286
     .word 287
     .word 288
@@ -37778,3 +38217,5 @@ _page_tests:
     .word 305
     .word 306
     .word 307
+    .word 308
+    .word 309

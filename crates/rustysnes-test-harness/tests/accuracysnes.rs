@@ -596,7 +596,7 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
 ];
 
 /// The measurement slots the `v1.29.0` Group E batch records.
-const GROUP_E_BATCH_SLOTS: [(u16, &str); 19] = [
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 25] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
         257,
@@ -626,6 +626,12 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 19] = [
         "B2.07 APU ticks over 48 frames (~6398 NTSC, ~7689 PAL)",
     ),
     (276, "B2.07 measured frame height (261 NTSC, 311 PAL)"),
+    (280, "E2.10 opcodes disagreeing with fullsnes (expect 0)"),
+    (281, "E2.10 opcodes measured (expect 231)"),
+    (282, "E2.10 first disagreeing opcode ($FF = none)"),
+    (277, "E2.10i 8xNOP x32 timer-2 ticks (baseline)"),
+    (278, "E2.10i 8xXCN x32 (expect baseline + 48)"),
+    (279, "E2.10i 8xMUL YA x32 (expect baseline + 112)"),
     (
         266,
         "E3.06 timer 0 ticks, accumulated across polls (expect ~13)",
