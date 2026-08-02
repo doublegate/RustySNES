@@ -290,10 +290,23 @@ MESEN2_PAL_KNOWN_FAILURES=1
 # Three, not four: `F1.10` is excluded by name — see its entry above.
 ARES_KNOWN_FAILURES=3
 
-# The row whose ares verdict is not reproducible, excluded from the count above. Named, never
-# indexed: the catalogue index moves whenever a test is added ahead of it, which is exactly the
-# circumstance that exposed the problem.
-ARES_UNSTABLE_ROW=F1.10
+# The row excluded from every host's failing count. Named, never indexed: the catalogue index moves
+# whenever a test is added ahead of it, which is exactly the circumstance that exposed the problem.
+#
+# It started as an ares-only exclusion and is now applied to Mesen2 as well, on the same evidence
+# and for the same reason. Adding `B2.07` made Mesen2's PAL verdict on this row flip between runs of
+# a single build — two runs of the same image gave `F1.03` alone and then `F1.03` + `F1.10`. That is
+# the third host/image combination to show it. The row samples `$4212` right at the vblank edge, so
+# ANY test added ahead of Group F moves the phase that decides it, and a gate that counts it fails
+# on work with nothing to do with controller ports.
+UNSTABLE_ROW=F1.10
+UNSTABLE_INDEX=$(awk -F'\t' -v id="$UNSTABLE_ROW" '$2 == id { print $1; exit }' \
+    tests/roms/AccuracySNES/SOURCE_CATALOG.tsv)
+if [[ -z $UNSTABLE_INDEX ]]; then
+    echo "error: $UNSTABLE_ROW is not in SOURCE_CATALOG.tsv — the exclusion is stale" >&2
+    exit 1
+fi
+export ACCURACYSNES_SKIP_INDEX=$UNSTABLE_INDEX
 
 # Where the built host lives. Not built by this script: it is a C++ link against ares' static libs
 # and takes minutes, so it is opt-in via `scripts/accuracysnes/ares_host/build.sh` and this block
@@ -353,15 +366,9 @@ if [[ -x $ARES_HOST ]]; then
     # so `("0x" $3) % 2` is 0 for every byte and counts all 337 non-skipped rows as failures. That is
     # a gate reporting catastrophe out of a parsing bug, which is worth the comment.
     # $FF is SKIP and $00 is NOT-RUN; both are excluded, matching how the other hosts count.
-    # ARES_UNSTABLE_ROW is excluded too, resolved from its ID here rather than written as an index.
-    skip=$(awk -F'\t' -v id="$ARES_UNSTABLE_ROW" '$2 == id { print $1; exit }' \
-        tests/roms/AccuracySNES/SOURCE_CATALOG.tsv)
-    if [[ -z $skip ]]; then
-        echo "ares: $ARES_UNSTABLE_ROW is not in SOURCE_CATALOG.tsv — the exclusion is stale" >&2
-        exit 1
-    fi
+    # UNSTABLE_ROW is excluded too, through the shared index resolved above.
     n=$("$ARES_HOST" "$ROM" 900 2>/dev/null |
-        awk -v skip="$skip" '$1 == "status" && $2 + 0 != skip + 0 && $3 != "ff" && $3 != "00" &&
+        awk -v skip="$UNSTABLE_INDEX" '$1 == "status" && $2 + 0 != skip + 0 && $3 != "ff" && $3 != "00" &&
                              $3 ~ /[02468aceACE]$/ { c++ }
              END { print c + 0 }')
     if [[ $n -eq $ARES_KNOWN_FAILURES ]]; then

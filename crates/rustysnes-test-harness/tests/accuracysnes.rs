@@ -596,7 +596,7 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
 ];
 
 /// The measurement slots the `v1.29.0` Group E batch records.
-const GROUP_E_BATCH_SLOTS: [(u16, &str); 17] = [
+const GROUP_E_BATCH_SLOTS: [(u16, &str); 19] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
         257,
@@ -621,6 +621,11 @@ const GROUP_E_BATCH_SLOTS: [(u16, &str); 17] = [
     (272, "A5.18 3x BRK native (expect ~297)"),
     (273, "A5.18 3x BRK emulation (expect ~291)"),
     (274, "A5.18 native - emulation (expect 6)"),
+    (
+        275,
+        "B2.07 APU ticks over 48 frames (~6398 NTSC, ~7689 PAL)",
+    ),
+    (276, "B2.07 measured frame height (261 NTSC, 311 PAL)"),
     (266, "E3.06 timer 0 ticks over the interval"),
     (
         267,
