@@ -36,7 +36,7 @@ local SCENE_H = 224
 -- it with a stride of 256, hashing a diagonal slice of the picture while reporting success. A
 -- golden blessed from that would be stable, reproducible and wrong. Widening the region past 256 is
 -- real planned work; it has to start from a loud rejection here, not a silent wrong picture.
-local SCENE_BUF_LEN = 256 * 239
+local SCENE_BUF_LEN = SCENE_W * 239
 
 -- The buffer row Mesen2's picture starts on. An output convention, exactly like pixel format:
 -- Mesen hands back 256x239 whose picture begins 7 rows in, snes9x's libretro core already starts

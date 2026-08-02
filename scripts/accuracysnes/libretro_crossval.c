@@ -115,7 +115,21 @@ static bool environment(unsigned cmd, void *data) {
 /* FNV-1a over canonical 0RRRRRGGGGGBBBBB pixels — the same value the Rust harness computes from
  * its own BGR555 framebuffer, so the two are directly comparable. */
 static void video_refresh(const void *d, unsigned w, unsigned h, size_t p) {
-    if (!d || w != SCENE_W || h < SCENE_H + FIRST_ROW) {
+    if (d && (w != SCENE_W || h != SCENE_H + FIRST_ROW)) {
+        /* Logged ONCE per distinct geometry, not per frame: a rejected frame leaves the previous
+         * hash standing, which is silent by design for duped frames but is exactly the wrong kind
+         * of quiet for a geometry violation. MEASURED 2026-08-01: snes9x emits 256x224 normally and
+         * 256x448 for interlaced/pseudo-hires frames, and the old lower-bound test passed the 448
+         * ones straight into the hash. */
+        static unsigned last_w, last_h;
+        if (w != last_w || h != last_h) {
+            last_w = w;
+            last_h = h;
+            fprintf(stderr, "accuracysnes: out-of-contract frame %ux%u (want %ux%u), not hashed\n",
+                    w, h, SCENE_W, SCENE_H + FIRST_ROW);
+        }
+    }
+    if (!d || w != SCENE_W || h != SCENE_H + FIRST_ROW) {
         /* A duped frame arrives as a NULL pointer; a hi-res or overscan frame is outside the
          * contract. Either way the previous hash stands rather than being silently replaced.
          *
