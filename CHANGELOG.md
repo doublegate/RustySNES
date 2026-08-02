@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The APU ran 0.92% slow on PAL: its clock divisor was pinned to the NTSC master rate.**
+  `Bus::advance_master` converts master ticks to SMP base clocks through a fixed rational, and the
+  denominator was `715_909` — the NTSC master clock — in **both** regions. The APU runs from its own
+  24.576 MHz crystal, so its rate is the same on NTSC and PAL while the master clock's is not;
+  holding the whole *ratio* fixed therefore made the APU scale with the video clock. On PAL that is
+  `21_281_370 × 68352/715909 = 2_031_850` base Hz against hardware's `2_050_560`.
+
+  **Both references disagree with the old behaviour, from opposite directions.** ares
+  (`sfc/system/system.cpp`) region-sets `cpuFrequency` and never region-sets `apuFrequency` at all;
+  snes9x (`apu/apu.cpp`) carries two explicit ratios, `15664/328125` and `34176/709379`, which both
+  work out to an APU rate of exactly **1,025,280 Hz** and differ *only* in the master-clock
+  denominator — `709_379 × 30` is `21_281_370`, which is where the new constant comes from.
+
+  The divisor is now chosen from the PPU's region at the point of use rather than cached in `Clock`:
+  the accumulator is already serialized, and a second field agreeing with it is one more thing that
+  can disagree across a region change or a state restore.
+
+  **A stale doc comment had asserted the opposite** — `sync_region_from_cart` said "nothing else in
+  the core depends on which oscillator frequency a real console would use". The SPC accumulator is
+  exactly that one thing; the comment is corrected rather than left to mislead. `docs/scheduler.md`
+  §async-resync and `docs/apu.md` updated in the same change.
+
+  NTSC output is byte-identical. `the_apu_rate_is_region_independent` asserts the two divisors differ
+  by exactly the ratio of the two master clocks, observed through emitted DSP samples so it needs no
+  new counter; it fails when the region-blind behaviour is injected. The AccuracySNES battery and
+  both images still cross-validate three ways.
+
 ### Added
 
 - **`A5.18` — `BRK` costs 8 cycles native and 7 in emulation.** The extra native cycle is the PBR

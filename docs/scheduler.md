@@ -498,16 +498,27 @@ advances in **true lockstep**, not catch-up:
 
 ```text
 spc_accum += SPC_NUM;                       // SPC_NUM = 68_352
-while spc_accum >= SPC_DEN {                 // SPC_DEN = 715_909
-    spc_accum -= SPC_DEN;
+while spc_accum >= spc_den {                 // 715_909 NTSC, 709_379 PAL
+    spc_accum -= spc_den;
     apu.advance_smp_cycle();                 // release one SMP *base* clock
 }
 ```
 
-`68_352 / 715_909` is the exact rational `(apuFrequency / 12) / 21_477_270` reduced by gcd = 30,
-where `apuFrequency = 32040 × 768 = 24_606_720` Hz (ares) and the SMP runs at `apuFrequency / 12 ≈
-2.05 MHz` (a normal SMP access = `SMP_WAIT` = 2 base clocks → the ~1.025 MHz effective opcode rate;
-`docs/apu.md`). Integer-only, so the SPC domain is bit-deterministic (`docs/adr/0004`).
+The numerator is the APU: `apuFrequency = 32040 × 768 = 24_606_720` Hz (ares), the SMP running at
+`apuFrequency / 12 ≈ 2.05 MHz` (a normal SMP access = `SMP_WAIT` = 2 base clocks → the ~1.025 MHz
+effective opcode rate; `docs/apu.md`). The **denominator is the region's master clock**, reduced by
+gcd = 30: `21_477_270 / 30 = 715_909` on NTSC, `21_281_370 / 30 = 709_379` on PAL. Integer-only, so
+the SPC domain is bit-deterministic (`docs/adr/0004`).
+
+**The denominator is the one place in the core where which console a real machine is matters, and
+it was region-blind until `v1.29.0`.** The APU runs from its own 24.576 MHz crystal, so its rate is
+the *same in both regions*; the master clock's is not. Holding the whole ratio fixed therefore made
+the APU scale with the video clock and run **0.92% slow on PAL**. Both references disagree with that
+from opposite directions: ares (`sfc/system/system.cpp`) region-sets `cpuFrequency` and never
+region-sets `apuFrequency` at all, and snes9x (`apu/apu.cpp`) carries two explicit ratios —
+`15664/328125` and `34176/709379` — which both work out to an APU rate of exactly 1,025,280 Hz and
+differ *only* in the master-clock denominator. `bus.rs`'s `the_apu_rate_is_region_independent` pins
+it.
 
 Because the SMP is advanced at master-clock granularity, by the time the CPU reads `$2140-$2143`
 the SMP has already been clocked up to that exact master instant — `Bus::b_read`/`b_write` route
