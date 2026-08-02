@@ -165,6 +165,27 @@ Per `ref-docs/2026-06-24-ppu.md` §6:
     documented per-dot gap in `undisbeliever_golden.rs`: its artifact is the CGRAM-redirect target on
     backdrop columns between opaque regions (an `internal_cgram_address` draw-ordering detail, tied to
     the draw-cursor/fetch-ahead alignment of Phase 4c), not a missing access-during-render redirect.
+
+    **The exact model difference, identified 2026-08-02.** MesenCE updates `InternalCgramAddress`
+    inside `GetRgbColor`, which it calls **only when `color > 0`** (`SnesPpu.cpp:1114`) — so a
+    *transparent* pixel leaves the address holding the previous opaque column's value — and it does so
+    **per layer during tilemap render**, in render order, so several layers may update it within one
+    column. RustySNES assigns it **once per column, unconditionally, from the composited pixel** at
+    the draw cursor (`render.rs`, `pd_draw_columns`). Those are structurally different models, not an
+    off-by-one.
+
+    **Gate-on-opaque is NOT the fix, and this was measured rather than assumed.** Wrapping the
+    assignment in `if ap.opaque` moves the ROM's hash from `0xaeb678a4165b28c5` to
+    `0xa55bd66a1e6dd125` — still not the MesenCE-agreeing golden — because gating the *composite* is
+    not the same as gating each *layer fetch*. It also breaks an AccuracySNES row. **Correction to a
+    previously recorded claim: the row it breaks is `C3.12` ("CGRAM taken in render"), not `C3.04`
+    ("H counter advances"), which passes.** `C3.12` failing is the expected shape — it is the row that
+    asserts the redirect target directly — and it means the cart row and MesenCE's model disagree
+    about a backdrop column, which has to be adjudicated before either is changed.
+
+    So the real fix is to track the redirect target in the **fetch** stage, per layer, updating only
+    for a non-zero colour index in MesenCE's layer order. That is a Phase 4c-shaped change, which is
+    why this is still open.
     The per-dot line state is transient (re-fetched at each line start), so it is not save-stated;
     `Ppu::load_state` invalidates it (forcing a re-fetch) and a mid-line save re-fetches on load.
   - **In-render OAM write redirect** (dossier C7.16). During
