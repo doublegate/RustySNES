@@ -36,7 +36,8 @@ pub struct Spc {
 /// two moves, the exact failure [`Spc::release_to_ipl`] documents — the emitter writes a
 /// placeholder and [`Spc::patch_fwd`] fills it in from the two offsets.
 #[derive(Debug)]
-#[must_use = "a forward branch that is never patched branches to itself"]
+#[must_use = "an unpatched forward branch keeps its placeholder displacement of 0 and silently \
+                  falls through to the next instruction"]
 pub struct Fwd(usize);
 
 impl Spc {
@@ -249,16 +250,23 @@ impl Spc {
     /// `JMP !abs` with a placeholder target, for a forward jump past a branch's reach.
     ///
     /// A [`Fwd`] branch covers ±127 bytes; the opcode sweep has to jump over its whole per-opcode
-    /// body, which is several hundred. `base` is where the program will be uploaded, because a
-    /// `JMP` names an absolute address and the assembler only knows offsets — the two are the same
-    /// number plus that base, and every Group E program is uploaded to a fixed one.
+    /// body, which is several hundred. The destination is supplied later, to
+    /// [`Spc::patch_jmp_fwd`].
     pub fn jmp_fwd(&mut self) -> Fwd {
         self.push(&[0x5F, 0x00, 0x00]);
         Fwd(self.bytes.len() - 2)
     }
 
     /// Point a [`Spc::jmp_fwd`] at the current offset, given the program's upload address.
-    /// Consumed for the same reason as [`Spc::patch_fwd`].
+    ///
+    /// `base` is needed because a `JMP` names an absolute address and the assembler only knows
+    /// offsets — the two are the same number plus that base, and every Group E program is uploaded
+    /// to a fixed one.
+    ///
+    /// # Panics
+    ///
+    /// If the program has grown past 64 KiB, which is more than the APU has. Consumed for the same
+    /// reason as [`Spc::patch_fwd`].
     #[allow(clippy::needless_pass_by_value)]
     pub fn patch_jmp_fwd(&mut self, fwd: Fwd, base: u16) -> &mut Self {
         let Fwd(at) = fwd;
@@ -272,7 +280,11 @@ impl Spc {
     /// `JMP !abs` back to an offset recorded by [`Spc::here`], given the program's upload address.
     ///
     /// The long-range counterpart of [`Spc::bne_back`], for a loop whose body is bigger than a
-    /// branch can span. See [`Spc::jmp_fwd`] on why the base has to be supplied.
+    /// branch can span. See [`Spc::patch_jmp_fwd`] on why the base has to be supplied.
+    ///
+    /// # Panics
+    ///
+    /// If `target` is past 64 KiB, which is more than the APU has.
     pub fn jmp_back(&mut self, target: usize, base: u16) -> &mut Self {
         let addr = base + u16::try_from(target).expect("a program is smaller than RAM");
         let [lo, hi] = addr.to_le_bytes();
@@ -294,11 +306,6 @@ impl Spc {
     /// `MOV A,X` — `$7D`.
     pub fn mov_a_x(&mut self) -> &mut Self {
         self.push(&[0x7D])
-    }
-
-    /// `INC X` — `$3D`.
-    pub fn inc_x_reg(&mut self) -> &mut Self {
-        self.push(&[0x3D])
     }
 
     /// `INC Y` — `$FC`.

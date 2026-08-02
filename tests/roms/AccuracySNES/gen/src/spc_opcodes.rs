@@ -182,8 +182,10 @@ const SHIFT_FORMS: [(u8, u8, u8, Operands, &str); 4] = [
 
 /// Everything the two regular groups do not cover, spelled out.
 ///
-/// `(code, len, cycles, measure, name)`. Grouped in source order by fullsnes's own headings so a
-/// reader can check a run of them against one block of the reference at a time.
+/// `(code, len, cycles, measure, operands, name)`. Grouped in source order by fullsnes's own
+/// headings so a
+/// reader can check a run of them against one block of the reference at a time — which means
+/// counting fields against that tuple, so it has to stay accurate.
 const SINGLES: &[(u8, u8, u8, Measure, Operands, &str)] = &[
     // Register manipulation.
     (0xE8, 2, 2, Measure::Straight, Operands::Imm, "MOV A,#nn"),

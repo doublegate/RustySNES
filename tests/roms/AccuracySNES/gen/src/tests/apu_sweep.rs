@@ -204,8 +204,8 @@ const EPILOGUE: [u8; 5] = [
 /// |---|---|---|
 /// | direct page | `$30` | the window pointer's own page, clear of `$00-$0F` and of `$F0-$FF` |
 /// | direct page, indexed | `$00` | `X` and `Y` are both `$30`, so `$00 + X` lands on the same byte |
-/// | absolute | `$0C00` | far from the image, the block and the stack; `+ $30` stays inside it |
-/// | bit address | `$0C00` bit 0 | the same window; the bit index rides in the top three bits |
+/// | absolute | [`ram::WINDOW`] | far from the image, the block and the stack; `+ $30` stays inside it |
+/// | bit address | [`ram::WINDOW`] bit 0 | the same window; the bit index rides in the top three bits |
 /// | relative | `0` | the taken path lands on the next instruction — see the module docs |
 ///
 /// `BBS aa.b` is the one exception, and it earns it: with the window byte at zero every `BBS` would
@@ -359,9 +359,7 @@ fn driver(prog: &mut Spc, t: &Tables, base: u16) {
         .mov_x_a()
         .mov_y_imm(0x00);
     let pro_loop = prog.here();
-    prog.mov_a_abs_x(t.prologues)
-        .mov_dp_a(dp::BYTES)
-        .inc_x_reg();
+    prog.mov_a_abs_x(t.prologues).mov_dp_a(dp::BYTES).inc_x();
     prog.mov_a_x().mov_dp_a(dp::TMP); // stash the prologue-table index
     prog.mov_x_dp(dp::CURSOR)
         .mov_a_dp(dp::BYTES)
@@ -385,10 +383,10 @@ fn driver(prog: &mut Spc, t: &Tables, base: u16) {
     prog.mov_x_dp(dp::CURSOR)
         .mov_a_dp(dp::BYTES)
         .mov_abs_x_a(ram::BLOCK)
-        .inc_x_reg()
+        .inc_x()
         .mov_a_dp(dp::BYTES + 1)
         .mov_abs_x_a(ram::BLOCK)
-        .inc_x_reg()
+        .inc_x()
         .mov_a_dp(dp::BYTES + 2)
         .mov_abs_x_a(ram::BLOCK);
     prog.mov_a_dp(dp::CURSOR)
@@ -401,7 +399,7 @@ fn driver(prog: &mut Spc, t: &Tables, base: u16) {
     for (i, byte) in EPILOGUE.iter().enumerate() {
         prog.mov_x_dp(dp::CURSOR).mov_a_imm(*byte);
         for _ in 0..i {
-            prog.inc_x_reg();
+            prog.inc_x();
         }
         prog.mov_abs_x_a(ram::BLOCK);
     }
@@ -628,5 +626,30 @@ mod tests {
     #[test]
     fn one_cycle_of_difference_is_six_ticks() {
         assert_eq!(TICKS_PER_CYCLE, 6);
+    }
+
+    /// The driver computes `expected = base + (cycles - 2) * TICKS_PER_CYCLE` with `MUL YA`, which
+    /// leaves the product's high byte in `Y` — and reads only `A`.
+    ///
+    /// That is correct today only because the slowest measured opcode is `DIV YA,X` at 12 cycles,
+    /// which scales to 60. Nothing else enforced it, and `TICKS_PER_CYCLE` is derived from two
+    /// constants that a future change to the block shape would move. Crossing 256 would make the
+    /// driver compute an expectation from the low byte alone and report an arithmetic artefact as a
+    /// timing fault — the worst kind of failure, because it looks exactly like a real one.
+    #[test]
+    fn every_expected_offset_fits_the_low_byte_of_mul_ya() {
+        for op in table() {
+            if matches!(op.measure, Measure::NotStraightLine(_)) {
+                continue;
+            }
+            let scaled = u16::from(op.cycles - 2) * u16::from(TICKS_PER_CYCLE);
+            assert!(
+                scaled < 256,
+                "{} is {} cycles, which scales to {scaled} — MUL YA would carry into Y and the \
+                 driver reads only A",
+                op.name,
+                op.cycles
+            );
+        }
     }
 }

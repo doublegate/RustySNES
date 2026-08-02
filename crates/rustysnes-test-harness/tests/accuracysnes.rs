@@ -595,7 +595,10 @@ const A5_08_SLOTS: [(u8, &str); 7] = [
     (6, "8x (PHD+PLD) - 16 NOP  (expect 76)"),
 ];
 
-/// The measurement slots the `v1.29.0` Group E batch records.
+/// The Group E measurement slots reported for cross-emulator comparison.
+///
+/// Version-agnostic on purpose: this list grows whenever a Group E row records a slot, and naming
+/// one release in the doc made it wrong the first time it did.
 const GROUP_E_BATCH_SLOTS: [(u16, &str); 25] = [
     (256, "E8.01 KON sweep key-on mask   (bit 7 = voice 0)"),
     (
@@ -653,7 +656,7 @@ fn group_e_batch_measurements_are_reported() {
     let report = run().expect("battery must run");
     assert!(report.done, "battery did not finish");
 
-    let mut out = String::from("\n  v1.29.0 Group E batch measurements:\n");
+    let mut out = String::from("\n  Group E measurements:\n");
     for (slot, what) in GROUP_E_BATCH_SLOTS {
         let v = report.meas[slot as usize];
         let _ = writeln!(out, "    slot {slot}  {v:5}  (${v:04X})  {what}");

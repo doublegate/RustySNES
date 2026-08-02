@@ -9162,7 +9162,9 @@ fn b2_07() -> Test {
 fn e2_10_instrument() -> Test {
     /// Copies of the opcode per iteration. Bounded by `T2OUT`'s four bits — see the doc comment.
     const REPEATS: usize = 8;
-    /// Iterations. `REPEATS * ITERATIONS / 8` is the ticks-per-cycle-of-difference resolution.
+    /// Iterations. `REPEATS * ITERATIONS / 16` is the ticks-per-cycle-of-difference
+    /// resolution — 16, because `T2OUT` steps every **16** opcode cycles. The first draft of this
+    /// line said `/ 8`, which is the same halving error the doc comment above already records.
     const ITERATIONS: u8 = 32;
 
     let mut prog = Spc::new();
