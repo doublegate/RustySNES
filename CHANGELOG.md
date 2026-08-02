@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`C5.15` is now blessed coverage: excluding the one undefined pixel made the rest of Mode 5
+  agree.** The retraction below establishes that the first hi-res pixel of a line is a genuine
+  reference disagreement on a value ares flags as *not confirmed on hardware*. Hashing it would have
+  made **every** hi-res scene permanently unblessable over one pixel.
+
+  `HiResEven` now excludes column 0, so the sample is 255x224 rather than 256x224 — a deliberate
+  part of the contract, recorded in the golden file's own header and in the variant's doc. With that
+  one column out, all three hosts agree bit-for-bit:
+
+  ```
+  snes9x     0xf7ed8ab9ecd95d85
+  Mesen2     0xf7ed8ab9ecd95d85
+  RustySNES  0xf7ed8ab9ecd95d85
+  ```
+
+  Rule 4 is satisfied, so the golden is blessed. **55 scenes match on both hosts, zero unblessed.**
+  Coverage `358 → 359 of 443`; `C5` drops to two uncovered rows (`C5.06`/`C5.07`, still blocked by
+  the mainscreen-column disagreement).
+
 - **RETRACTION: the Mode-5 first-pixel divergence is a 2-vs-2 reference disagreement, not a
   RustySNES defect.** The entry below claims the two references agree bit-for-bit against RustySNES,
   "this project's signature for a real defect". That was published from **two** references without

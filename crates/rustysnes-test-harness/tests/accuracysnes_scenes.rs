@@ -71,7 +71,15 @@ fn manifest_path() -> PathBuf {
 enum Extract {
     /// 256-wide frame, rows `FIRST_ROW..FIRST_ROW + SCENE_H`.
     Direct,
-    /// 512-wide frame: the even columns, which are the subscreen half.
+    /// 512-wide frame: the even columns — the subscreen half — **starting at column 2**.
+    ///
+    /// Column 0 is deliberately excluded. It is the first hi-res pixel of the line, and the
+    /// references genuinely disagree about it: RustySNES and ares emit black, snes9x and Mesen2 the
+    /// backdrop, and ares' own source says *"exact value initializations are not confirmed on
+    /// hardware"*. Under ADR 0013 rule 4 a golden may not be blessed from a pixel the references
+    /// disagree about — so hashing it would make every hi-res scene permanently unblessable over
+    /// one undefined pixel. Excluding it makes the other 255 columns, which all four
+    /// implementations agree on, into evidence.
     HiResEven,
 }
 
@@ -181,6 +189,13 @@ fn hash_scene(fb: &[u16], width: usize, extract: Extract) -> (u64, Vec<u16>) {
             2
         }
     };
+    // Column 0 is skipped under `HiResEven` — see the variant's own doc. The sample is therefore
+    // 255 columns wide there, not 256, and that is a deliberate part of the contract rather than an
+    // off-by-one.
+    let first_col = match extract {
+        Extract::Direct => 0,
+        Extract::HiResEven => 1,
+    };
     assert!(
         fb.len() >= (FIRST_ROW + SCENE_H) * width,
         "the framebuffer holds {} pixels, too few for rows {FIRST_ROW}..{} at width {width} — the \
@@ -192,8 +207,8 @@ fn hash_scene(fb: &[u16], width: usize, extract: Extract) -> (u64, Vec<u16>) {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut px = Vec::with_capacity(SCENE_W * SCENE_H);
     for y in FIRST_ROW..FIRST_ROW + SCENE_H {
-        for x in 0..SCENE_W {
-            // Even columns only under `HiResEven`: the subscreen half, which is the half the three
+        for x in first_col..SCENE_W {
+            // Even columns only under `HiResEven`: the subscreen half, which is the half the
             // references agree on. RustySNES's own framebuffer is not line-doubled, so the row
             // index needs no step — Mesen2's does, and that is handled in its own host.
             let p = fb[y * width + x * step];

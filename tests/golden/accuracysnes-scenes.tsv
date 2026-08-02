@@ -2,7 +2,14 @@
 #
 # Format: <scene id>\t<hash>
 #
-# The hash is FNV-1a over a fixed 256x224 region of canonical 0RRRRRGGGGGBBBBB pixels. Fixed and
+# The hash is FNV-1a over a fixed 256x224 region of canonical 0RRRRRGGGGGBBBBB pixels -- except
+# under the `hires-even` extraction, where it is 255x224: the frame is 512 wide, the sample is its
+# EVEN columns (the subscreen half), and column 0 is EXCLUDED. That first hi-res pixel is the one
+# thing the references genuinely disagree about -- RustySNES and ares emit black, snes9x and Mesen2
+# the backdrop, and ares' own source says "exact value initializations are not confirmed on
+# hardware" -- so hashing it would make every hi-res scene permanently unblessable under rule 4 over
+# one undefined pixel. Excluding it, all three hosts agree bit-for-bit. Which rule a scene uses is
+# declared in build/scenes.tsv's fourth column (docs/adr/0013, 2026-08-02 supplement). Fixed and
 # canonical because emulators agree about neither geometry nor pixel format, and a golden has to
 # compare pictures rather than output conventions. Each host declares where its own picture starts
 # in its own buffer (`FIRST_ROW`): RustySNES 0, snes9x's libretro core 0, Mesen2 7.
@@ -202,3 +209,4 @@ c7-hflip-sliver-order	0x863f085bccebd107
 c8-force-black-outside-window	0x21a5b8a828e748d7
 c5-4bpp-bitplane-order	0xf11def7ad73be325
 c11-mode7-product-low-bits-masked	0xc032679c9076440a
+c5-mode5-hires-16px-tiles	0xf7ed8ab9ecd95d85
