@@ -588,6 +588,54 @@ mod tests {
         assert!(!sys.booted);
     }
 
+    /// A cartridge `/RESET` does **not** reset the PPU — its state survives (AccuracySNES `G1.06`,
+    /// an `[ERRATA]` row).
+    ///
+    /// **This assertion is on-cart impossible and that is why it lives here.** The reset line is
+    /// driven from outside the cartridge; a program cannot pull its own and then observe what
+    /// survived, because observing requires still running. The host can, so the host is where the
+    /// row is covered — see `dossier.rs::HOST_COVERED`, which records exactly that reasoning
+    /// rather than letting a host-tier cover look like an on-cart one.
+    ///
+    /// The mechanism is that `System::reset` resets the **CPU** and re-syncs the region, and
+    /// touches nothing in the PPU. That is easy to break by adding a `ppu.reset()` here for
+    /// tidiness, which is precisely what this test exists to catch.
+    #[test]
+    fn a_soft_reset_leaves_the_ppu_alone() {
+        let mut sys = System::new(0);
+        sys.bus.ppu.vram_mut()[0x1234] = 0xBEEF;
+        // Run the PPU well into a frame first. Resetting from the power-on position would leave
+        // the timeline at (0, 0) either way, so the test would pass whether or not the PPU is
+        // reset — the distinctive position is what makes the second assertion mean anything.
+        sys.bus.advance_master_for_test(80_000);
+        let line_before = sys.bus.ppu.scanline();
+        // Bounded on BOTH sides, not merely non-zero. The reset costs a handful of clocks, so a
+        // `line_before` near the end of a frame would let the line legitimately wrap to 0 and the
+        // assertion below would read that as a restart. Landing mid-frame is what makes it
+        // unambiguous, so the setup asserts it landed there.
+        assert!(
+            (10..200).contains(&line_before),
+            "setup did not leave the PPU mid-frame (line {line_before}); the assertion below \
+             cannot tell a frame wrap from a restart near a boundary"
+        );
+
+        sys.reset();
+
+        assert_eq!(
+            sys.bus.ppu.vram()[0x1234],
+            0xBEEF,
+            "a soft reset cleared VRAM — on hardware the PPU never sees the cartridge reset line, \
+             so a driver relying on its tiles surviving a Reset press would break"
+        );
+        let line_after = sys.bus.ppu.scanline();
+        assert!(
+            (line_before..=line_before + 1).contains(&line_after),
+            "a soft reset moved the PPU's timeline, from line {line_before} to {line_after}. The \
+             video clock free-runs across a cartridge reset: it may advance by the handful of \
+             clocks the vector fetch costs, but it must never restart"
+        );
+    }
+
     #[test]
     fn system_state_round_trips_without_a_cart() {
         let mut sys = System::new(42);

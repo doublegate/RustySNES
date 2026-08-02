@@ -53,6 +53,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A third coverage tier for assertions the cart physically cannot observe — `G1.06` and
+  `G1.18`.** Both were known-coverable and unrepresentable: the coverage report counted on-cart and
+  scene covers only, so a row whose stimulus comes from outside the cartridge had nowhere to go.
+
+  The bar is deliberately narrow. Not "a host test also exercises this" — **the cart cannot observe
+  it at all**, with the reason stated per row. `G1.06` (cartridge `/RESET` does not reset the PPU)
+  is driven from outside the cartridge: a program cannot pull its own reset and then observe what
+  survived, because observing requires still running. `G1.18` (the copier prefix) is about the
+  *loader*, not the machine — a file's size is decided before a single instruction runs.
+
+  Reported in its own column and its own total, never folded into the on-cart figure, and the
+  report now orders the three tiers by what the evidence is worth: an on-cart verdict means the same
+  thing on any emulator and on real hardware, a scene needs a host holding the golden, and a
+  host-side cover is **this project testing its own code** — the one thing AccuracySNES exists to
+  stop being the only evidence. Every entry names the test that carries it, so the claim is
+  checkable.
+
+  `G1.06`'s test is new (`a_soft_reset_leaves_the_ppu_alone`) and inject-verified: adding a
+  `ppu = Ppu::new()` to `System::reset` — the tidy-looking change it exists to catch — fires it. It
+  also pins that the PPU's timeline never moves *backwards* across a reset, and the first draft of
+  that assertion was wrong: the timeline legitimately advances, because the vector fetch costs
+  clocks. Coverage `356 → 358 of 443`.
+
 - **`B2.07`/`B2.08` — the frame rate, measured against the APU's clock.** "60.0988 Hz" is a claim
   about wall-clock time and a cart has no wall clock; the one independent timebase it can reach is
   the APU's, whose 24.576 MHz crystal runs at the same rate in both regions. Timer 0 at `T0DIV = 1`

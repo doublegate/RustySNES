@@ -6,55 +6,55 @@ Maps `docs/accuracysnes-research-dossier.md` §5 assertions to the cart tests th
 
 Every sub-group of Part V is enumerated, so this is a **complete** statement of coverage — if an assertion has no test, it is listed here. Rows carrying a range (`A5.01-08`, `C2.03-05`, `D2.11-14`) stand for several assertions each, so the assertion total is slightly higher than the row total.
 
-| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Uncovered |
-|---|---:|---:|---:|---|
-| `A1` | 9 | 9 | 0 | — |
-| `A2` | 10 | 10 | 0 | — |
-| `A3` | 10 | 10 | 0 | — |
-| `A4` | 10 | 10 | 0 | — |
-| `A5` | 15 | 14 | 0 | A5.20 |
-| `A6` | 15 | 13 | 0 | A6.13, A6.15 |
-| `A7` | 5 | 5 | 0 | — |
-| `A8` | 6 | 6 | 0 | — |
-| `A9` | 3 | 3 | 0 | — |
-| `B1` | 5 | 4 | 0 | B1.05 |
-| `B2` | 9 | 6 | 0 | B2.02, B2.03, B2.09 |
-| `B3` | 3 | 3 | 0 | — |
-| `B4` | 14 | 12 | 0 | B4.01, B4.10 |
-| `B5` | 4 | 4 | 0 | — |
-| `C1` | 9 | 8 | 0 | C1.09 |
-| `C2` | 10 | 10 | 0 | — |
-| `C3` | 10 | 9 | 0 | C3.10 |
-| `C4` | 5 | 0 | 5 | — |
-| `C5` | 15 | 0 | 12 | C5.06, C5.07, C5.15 |
-| `C6` | 7 | 0 | 6 | C6.07 |
-| `C7` | 16 | 8 | 6 | C7.07, C7.12 |
-| `C8` | 12 | 0 | 11 | C8.09 |
-| `C9` | 8 | 2 | 0 | C9.01, C9.02, C9.03, C9.06, C9.07, C9.08 |
-| `C10` | 5 | 0 | 3 | C10.03, C10.04 |
-| `C11` | 12 | 3 | 8 | C11.12 |
-| `C12` | 3 | 0 | 3 | — |
-| `C13` | 10 | 4 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
-| `C14` | 3 | 3 | 0 | — |
-| `D1` | 15 | 14 | 0 | D1.12 |
-| `D2` | 14 | 6 | 0 | D2.01, D2.02, D2.08, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
-| `D3` | 2 | 0 | 0 | D3.01, D3.02 |
-| `E1` | 15 | 14 | 0 | E1.11 |
-| `E2` | 10 | 9 | 0 | E2.10 |
-| `E3` | 14 | 12 | 0 | E3.07, E3.12 |
-| `E4` | 11 | 7 | 0 | E4.05, E4.07, E4.09, E4.10 |
-| `E5` | 13 | 13 | 0 | — |
-| `E6` | 11 | 3 | 0 | E6.01, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.10 |
-| `E7` | 18 | 17 | 0 | E7.02 |
-| `E8` | 11 | 7 | 0 | E8.06, E8.08, E8.09, E8.11 |
-| `E9` | 20 | 14 | 0 | E9.07, E9.08, E9.11, E9.14, E9.16, E9.20 |
-| `E10` | 6 | 2 | 0 | E10.02, E10.03, E10.04, E10.06 |
-| `F1` | 22 | 13 | 0 | F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
-| `G1` | 18 | 15 | 0 | G1.06, G1.13, G1.18 |
+| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Covered (host) | Uncovered |
+|---|---:|---:|---:|---:|---|
+| `A1` | 9 | 9 | 0 | 0 | — |
+| `A2` | 10 | 10 | 0 | 0 | — |
+| `A3` | 10 | 10 | 0 | 0 | — |
+| `A4` | 10 | 10 | 0 | 0 | — |
+| `A5` | 15 | 14 | 0 | 0 | A5.20 |
+| `A6` | 15 | 13 | 0 | 0 | A6.13, A6.15 |
+| `A7` | 5 | 5 | 0 | 0 | — |
+| `A8` | 6 | 6 | 0 | 0 | — |
+| `A9` | 3 | 3 | 0 | 0 | — |
+| `B1` | 5 | 4 | 0 | 0 | B1.05 |
+| `B2` | 9 | 6 | 0 | 0 | B2.02, B2.03, B2.09 |
+| `B3` | 3 | 3 | 0 | 0 | — |
+| `B4` | 14 | 12 | 0 | 0 | B4.01, B4.10 |
+| `B5` | 4 | 4 | 0 | 0 | — |
+| `C1` | 9 | 8 | 0 | 0 | C1.09 |
+| `C2` | 10 | 10 | 0 | 0 | — |
+| `C3` | 10 | 9 | 0 | 0 | C3.10 |
+| `C4` | 5 | 0 | 5 | 0 | — |
+| `C5` | 15 | 0 | 12 | 0 | C5.06, C5.07, C5.15 |
+| `C6` | 7 | 0 | 6 | 0 | C6.07 |
+| `C7` | 16 | 8 | 6 | 0 | C7.07, C7.12 |
+| `C8` | 12 | 0 | 11 | 0 | C8.09 |
+| `C9` | 8 | 2 | 0 | 0 | C9.01, C9.02, C9.03, C9.06, C9.07, C9.08 |
+| `C10` | 5 | 0 | 3 | 0 | C10.03, C10.04 |
+| `C11` | 12 | 3 | 8 | 0 | C11.12 |
+| `C12` | 3 | 0 | 3 | 0 | — |
+| `C13` | 10 | 4 | 0 | 0 | C13.01, C13.02, C13.03, C13.04, C13.05, C13.06 |
+| `C14` | 3 | 3 | 0 | 0 | — |
+| `D1` | 15 | 14 | 0 | 0 | D1.12 |
+| `D2` | 14 | 6 | 0 | 0 | D2.01, D2.02, D2.08, D2.10, D2.11-14, D2.15, D2.16, D2.17 |
+| `D3` | 2 | 0 | 0 | 0 | D3.01, D3.02 |
+| `E1` | 15 | 14 | 0 | 0 | E1.11 |
+| `E2` | 10 | 9 | 0 | 0 | E2.10 |
+| `E3` | 14 | 12 | 0 | 0 | E3.07, E3.12 |
+| `E4` | 11 | 7 | 0 | 0 | E4.05, E4.07, E4.09, E4.10 |
+| `E5` | 13 | 13 | 0 | 0 | — |
+| `E6` | 11 | 3 | 0 | 0 | E6.01, E6.03, E6.04, E6.05, E6.06, E6.07, E6.08, E6.10 |
+| `E7` | 18 | 17 | 0 | 0 | E7.02 |
+| `E8` | 11 | 7 | 0 | 0 | E8.06, E8.08, E8.09, E8.11 |
+| `E9` | 20 | 14 | 0 | 0 | E9.07, E9.08, E9.11, E9.14, E9.16, E9.20 |
+| `E10` | 6 | 2 | 0 | 0 | E10.02, E10.03, E10.04, E10.06 |
+| `F1` | 22 | 13 | 0 | 0 | F1.13, F1.15, F1.16, F1.17, F1.18, F1.19, F1.20, F1.21, F1.22 |
+| `G1` | 18 | 15 | 0 | 2 | G1.13 |
 
-**302 of 443** enumerated assertion rows covered by an on-cart test, plus **54** covered only by a rendered scene (`docs/adr/0013`) — **356 of 443** in total.
+**302 of 443** enumerated assertion rows covered by an on-cart test, plus **54** covered only by a rendered scene (`docs/adr/0013`) and **2** covered only by a host-side test — **358 of 443** in total.
 
-The two columns are kept apart on purpose. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden. Adding them into one figure would quietly change what the number claims.
+The three columns are kept apart on purpose, in descending order of what the evidence is worth. An on-cart result means the same thing on any emulator and on real hardware; a rendered scene needs a host holding the golden; a **host-side** cover is this project testing its own code, which is the one thing AccuracySNES exists to stop being the only evidence. The host tier is admitted only where the cart *physically cannot* observe the assertion — the stimulus comes from outside the cartridge, or the subject is the loader rather than the machine — and every entry names the test and the reason (`dossier.rs::HOST_COVERED`). Adding the columns into one figure would quietly change what the number claims.
 
 ## Assertions split across several tests
 

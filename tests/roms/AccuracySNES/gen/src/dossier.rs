@@ -478,6 +478,42 @@ pub const SPLITS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Assertions covered by a **host-side** test rather than by anything on the cartridge.
+///
+/// A third tier, and a deliberately narrow one. The bar is not "a host test also exercises this" —
+/// it is **the cart physically cannot observe the assertion**, with the reason stated per row. Two
+/// things make that true in practice: the stimulus comes from outside the cartridge (a `/RESET`
+/// line the program cannot pull and then survive to observe), or the subject is the *loader* rather
+/// than the machine (a file's size, which no running program can see).
+///
+/// Kept in its own column and its own total, never folded into the on-cart figure, for the same
+/// reason rendered scenes are: they are not the same kind of evidence. An on-cart verdict means the
+/// same thing on any emulator and on real hardware; a host-tier cover is this project testing its
+/// own code, which is exactly what AccuracySNES exists to stop being the only evidence. Reported so
+/// a reader can discount it, not so the headline number goes up.
+///
+/// Each entry names the test that carries it, so the claim is checkable rather than asserted.
+pub const HOST_COVERED: &[(&str, &str, &str)] = &[
+    (
+        "G1.06",
+        "rustysnes-core::scheduler::tests::a_soft_reset_leaves_the_ppu_alone",
+        "The reset line is driven from OUTSIDE the cartridge. A program cannot pull its own and \
+         then observe what survived, because observing requires still running -- so no on-cart \
+         test of this assertion can exist, whatever machinery is added. The host can hold state \
+         across `System::reset` and check it, and the test also pins that the PPU's timeline never \
+         moves backwards across one",
+    ),
+    (
+        "G1.18",
+        "rustysnes-cart::header::tests::copier_prefix_stripped",
+        "The subject is the LOADER, not the machine: a copier prefix is decided by the file's \
+         size before a single instruction runs, and a program has no way to see how large the file \
+         it was loaded from was. Note the dossier row quotes `% 1024 == 512` while every \
+         bsnes-lineage reference implements the stricter `% 32768 == 512`, which is what \
+         `rustysnes-cart` does; see that row's own correction",
+    ),
+];
+
 /// Tests that implement no enumerated dossier assertion, with the reason each is legitimate.
 pub const UNENUMERATED: &[(&str, &str)] = &[
     (
@@ -758,27 +794,36 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
     let scenes = scene_assertions();
     let mut covered_total = 0usize;
     let mut scene_total = 0usize;
+    let mut host_total = 0usize;
     let mut all_total = 0usize;
     let _ = writeln!(
         s,
-        "| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Uncovered |"
+        "| Sub-group | Enumerated | Covered (on-cart) | Covered (scene) | Covered (host) | \
+         Uncovered |"
     );
-    let _ = writeln!(s, "|---|---:|---:|---:|---|");
+    let _ = writeln!(s, "|---|---:|---:|---:|---:|---|");
     for (sub, ids) in enumerated {
         let mut uncovered = Vec::new();
         let mut covered = 0usize;
         let mut by_scene = 0usize;
+        let mut by_host = 0usize;
         for id in ids {
+            // On-cart first, then scene, then host: the tiers are checked in descending order of
+            // what the evidence is worth, so an assertion that has an on-cart test is never
+            // reported under a weaker tier just because one also exists.
             if tests.iter().any(|t| for_test(t.id).iter().any(|d| d == id)) {
                 covered += 1;
             } else if scenes.iter().any(|d| d == id) {
                 by_scene += 1;
+            } else if HOST_COVERED.iter().any(|(a, _, _)| a == id) {
+                by_host += 1;
             } else {
                 uncovered.push(id.clone());
             }
         }
         covered_total += covered;
         scene_total += by_scene;
+        host_total += by_host;
         all_total += ids.len();
         let list = if uncovered.is_empty() {
             "—".to_string()
@@ -787,22 +832,28 @@ pub fn coverage_report(tests: &[crate::dsl::Test], enumerated: &[(String, Vec<St
         };
         let _ = writeln!(
             s,
-            "| `{sub}` | {} | {covered} | {by_scene} | {list} |",
+            "| `{sub}` | {} | {covered} | {by_scene} | {by_host} | {list} |",
             ids.len()
         );
     }
     let _ = writeln!(
         s,
         "\n**{covered_total} of {all_total}** enumerated assertion rows covered by an on-cart \
-         test, plus **{scene_total}** covered only by a rendered scene \
-         (`docs/adr/0013`) — **{} of {all_total}** in total.\n",
-        covered_total + scene_total
+         test, plus **{scene_total}** covered only by a rendered scene (`docs/adr/0013`) and \
+         **{host_total}** covered only by a host-side test — **{} of {all_total}** in total.\n",
+        covered_total + scene_total + host_total
     );
     let _ = writeln!(
         s,
-        "The two columns are kept apart on purpose. An on-cart result means the same thing on any \
-         emulator and on real hardware; a rendered scene needs a host holding the golden. Adding \
-         them into one figure would quietly change what the number claims.\n"
+        "The three columns are kept apart on purpose, in descending order of what the evidence is \
+         worth. An on-cart result means the same thing on any emulator and on real hardware; a \
+         rendered scene needs a host holding the golden; a **host-side** cover is this project \
+         testing its own code, which is the one thing AccuracySNES exists to stop being the only \
+         evidence. The host tier is admitted only where the cart *physically cannot* observe the \
+         assertion — the stimulus comes from outside the cartridge, or the subject is the loader \
+         rather than the machine — and every entry names the test and the reason \
+         (`dossier.rs::HOST_COVERED`). Adding the columns into one figure would quietly change \
+         what the number claims.\n"
     );
 
     let _ = writeln!(s, "## Assertions split across several tests\n");
