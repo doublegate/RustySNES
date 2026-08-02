@@ -175,6 +175,17 @@ impl Header {
     /// [`HeaderError::TooSmall`] if the (de-prefixed) image can't hold a single 32 KiB bank, or
     /// [`HeaderError::NoValidHeader`] if no candidate offset scores above zero.
     pub fn detect(rom: &[u8]) -> Result<Self, HeaderError> {
+        // `% 0x8000`, NOT the `% 1024 == 512` the folk rule (and AccuracySNES `G1.18`) quotes.
+        //
+        // Measured against the references rather than assumed: ares/bsnes
+        // (`mia/medium/super-famicom.cpp`) test `(rom.size() & 0x7fff) == 512`, which is exactly
+        // this. The two rules agree for every real cartridge image, because a stripped image is a
+        // multiple of 32 KiB; they differ only for an odd-sized dump, where the stricter rule
+        // refuses to strip rather than shifting an image that was never prefixed. snes9x takes a
+        // third, looser route (`size - calc_size == 512` against a rounded size).
+        //
+        // Do not "fix" this to match the quoted rule: it would diverge from both bsnes-lineage
+        // references to match prose that no reference implements.
         let copier_prefix = if rom.len() % 0x8000 == 0x200 {
             0x200
         } else {
