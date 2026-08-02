@@ -22,20 +22,42 @@ use rustysnes_core::{System, cart::Cart};
 /// Frames to run before hashing (enough for the ROMs to reach their stable rendered pattern).
 const FRAMES: u32 = 60;
 
-/// ROMs that render differently — and, so far, *less* correctly — under the per-dot compositor than
-/// the batch model, so their golden keeps the batch (MesenCE-agreeing) hash and the per-dot mismatch
-/// is accepted here as a documented, pinned gap. Each entry pins the exact per-dot hash so a *change*
-/// in the wrong output still trips the gate. Currently one: `inidisp_forgot_to_force_blank` does a
-/// PPU access during active display without force-blank; per-dot returns `7fff` where MesenCE returns
-/// `7fc6` — a Phase 4d (PPU access-during-render) gap. When 4d lands, remove the entry and re-bless.
+/// ROMs whose per-dot output differs from the MesenCE-agreeing golden, with the difference
+/// **adjudicated** rather than assumed to be ours. Each entry pins the exact per-dot hash, so a
+/// *change* in this output still trips the gate.
 ///
-/// The pinned hash was refreshed for the DRAM-refresh stall (`docs/dram-refresh.md`): the 4d gap is
-/// unchanged, but the per-line refresh shifts the whole frame's timing, so the wrong output lands at
-/// a different instant and hashes differently. The golden TSV entry stays the pre-refresh batch value
-/// (it only needs to differ from the pinned value to route through this known-gap branch).
+/// Currently one: `inidisp_forgot_to_force_blank` does a PPU access during active display without
+/// force-blank; per-dot returns `7fff` where MesenCE returns `7fc6`.
+///
+/// # This is a reference disagreement, not a RustySNES gap
+///
+/// It was recorded as "a Phase 4d (PPU access-during-render) gap — when 4d lands, remove the entry
+/// and re-bless". Reading the third reference (2026-08-02) overturned that:
+///
+/// - **ares** (`sfc/ppu/dac.cpp:158`) sets `latch.cgramAddress = palette` **unconditionally**, in
+///   `paletteColor`, called during per-dot priority resolution — including `paletteColor(0)` for the
+///   transparent case at `dac.cpp:71`. That is RustySNES's model exactly: one assignment per dot,
+///   from the composited pixel, backdrop giving zero.
+/// - **MesenCE** writes it per *layer fetch* and then runs `RenderBgColor()` — which zeroes backdrop
+///   columns — **after** every layer render in a span. What survives a span is therefore decided by
+///   pass ordering across the whole span, which is an artefact of a span-based renderer rather than
+///   a per-dot physical process.
+///
+/// So the `7fc6` encodes MesenCE's renderer architecture. Two corroborations: `C3.12` — the scored
+/// AccuracySNES row that asserts the redirect target directly — **passes on both Mesen2 and
+/// RustySNES**, so they agree on the assertion and differ only on this homebrew hash; and `C3.12`'s
+/// provenance is a per-dot statement ("uses the colour the PPU *is drawing*"), which the per-dot
+/// model implements directly.
+///
+/// **Do not "fix" this by matching MesenCE.** The golden TSV entry stays the batch value; it only
+/// needs to differ from the pinned value to route through this branch.
+///
+/// The pinned hash was refreshed once for the DRAM-refresh stall (`docs/dram-refresh.md`): the
+/// difference is unchanged, but the per-line refresh shifts the whole frame's timing, so the output
+/// lands at a different instant and hashes differently.
 ///
 /// Unconditional: the per-dot PPU is the only compositor (the batch path was removed), so this crate
-/// always exercises it and the gap list is not gated on any feature.
+/// always exercises it and the list is not gated on any feature.
 const PERDOT_KNOWN_GAPS: &[(&str, u64)] =
     &[("inidisp_forgot_to_force_blank", 0xaeb6_78a4_165b_28c5)];
 

@@ -147,24 +147,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   It belongs with `C13.*` and `F1.22`: enumerated, uncoverable, scored as such rather than chased.
 
-- **`inidisp_forgot_to_force_blank`: the model difference is now identified exactly, and a recorded
-  claim about it is corrected.** The last per-dot framebuffer gap was documented only as "an
-  `internal_cgram_address` draw-ordering detail". The concrete difference: MesenCE updates
-  `InternalCgramAddress` inside `GetRgbColor`, called **only when `color > 0`** and **per layer
-  during tilemap render** — so a transparent pixel leaves the previous opaque column's value standing,
-  and several layers may update it within one column. RustySNES assigns it **once per column,
-  unconditionally, from the composited pixel** at the draw cursor. Structurally different models, not
-  an off-by-one.
+- **`inidisp_forgot_to_force_blank` is NOT a RustySNES defect, and the previous entry's account of
+  MesenCE's model was incomplete.** It was recorded as "the last per-dot framebuffer gap", to be
+  closed by tracking the CGRAM redirect target "in the fetch stage, per layer, on non-zero colour
+  indices". Reading the third reference changes the conclusion.
 
-  **Gate-on-opaque is not the fix**, measured rather than assumed: wrapping the assignment in
-  `if ap.opaque` moves the ROM's hash from `0xaeb678a4165b28c5` to `0xa55bd66a1e6dd125` — still not
-  the MesenCE-agreeing golden — because gating the *composite* is not gating each *layer fetch*.
+  **The incomplete claim.** MesenCE was described as updating `InternalCgramAddress` only inside
+  `GetRgbColor`, "so a transparent pixel leaves the previous opaque column's value standing". It does
+  not. `SnesPpu::RenderBgColor()` runs **after** every layer render in a span and sets
+  `InternalCgramAddress = 0` for every backdrop column it fills, ascending. So MesenCE zeroes on
+  backdrop too — and what survives a span is decided by **pass ordering across the whole span**, not
+  by the last column drawn. That is an artefact of a span-based renderer, not a per-dot process.
 
-  **Correction:** the AccuracySNES row that breaks under gate-on-opaque is **`C3.12`** ("CGRAM taken
-  in render"), not `C3.04` ("H counter advances") as previously recorded — `C3.04` passes. `C3.12`
-  is the row that asserts the redirect target directly, so its failure means the cart row and
-  MesenCE's model disagree about a backdrop column, and that needs adjudicating before either
-  changes. The real fix tracks the target in the fetch stage, per layer, on non-zero colour indices.
+  **ares settles it.** `PPU::DAC::paletteColor` sets `latch.cgramAddress = palette` unconditionally,
+  called during per-dot priority resolution in the DAC — including `paletteColor(0)` for the
+  transparent case (`dac.cpp:71`). That is RustySNES's model exactly: one assignment per dot, from
+  the composited pixel, backdrop giving zero.
+
+  So RustySNES and ares implement the same per-dot model and MesenCE differs for architectural
+  reasons. The `7fc6` in the golden encodes **MesenCE's renderer**, not hardware. The row is
+  reclassified from a per-dot gap to a reference disagreement, and the engine is not changed to match
+  a pass-ordering artefact.
+
+  Two corroborations: `C3.12` ("CGRAM taken in render"), the scored cart row that asserts the
+  redirect target directly, **passes on Mesen2 and on RustySNES** — the two agree on the assertion
+  and differ only on this homebrew framebuffer hash. And `C3.12`'s own provenance is a per-dot
+  statement — "a CGRAM access during active display uses the colour the PPU **is drawing**" — which
+  the per-dot model implements directly and a span-ordering model only approximates.
+
+  This is the shape the Mode-5 first-pixel claim had, and the lesson from that retraction applied:
+  the third reference was read **before** publishing, not after.
 
 - **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
   different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an
