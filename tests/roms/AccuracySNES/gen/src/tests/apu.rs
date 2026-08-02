@@ -8874,7 +8874,7 @@ fn b2_07_drive(a: &mut Asm, prog: &Spc, frames: u16, stop: u8, started: u8) {
 /// # What the two readings are
 ///
 /// Timer 0 at `T0DIV = 1` steps `T0OUT` every 256 SMP base clocks, so 2,050,560 / 256 = **8,010
-/// ticks a second** on either console. Over [`B2_FRAMES`] frames:
+/// ticks a second** on either console. Over `B2_FRAMES` (48) frames:
 ///
 /// | image | frame rate | ticks/frame | over 48 frames |
 /// |---|---:|---:|---:|
