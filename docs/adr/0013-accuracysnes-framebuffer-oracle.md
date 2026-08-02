@@ -240,3 +240,28 @@ The method note is the durable part. Two references agreeing is not "the referen
 project counts ares and bsnes as **one** reference precisely because lineage matters, and here the
 lineage that disagreed was the one not consulted. Read the third source *before* publishing a defect
 claim, not after.
+
+### `C10.04` is blocked by the same exclusion that unblocked `C5.15`
+
+Attempted 2026-08-02 and **withdrawn**, because the attempt is worth more written down than the
+scene would have been.
+
+`C10.04` says a mosaic of **1** is the identity at 256 pixels but a **2x1 pair of half-pixels** in
+true hi-res. A Mode 5 scene with `MOSAIC = $01` was written against exactly the control the working
+rules ask for — the same canvas with mosaic off — and it hashed **identically to that control on
+both references**: `0xf7ed8ab9ecd95d85` either way.
+
+The reason is structural, not a bug in the scene. A 2x1 mosaic pair merges an *even* column with its
+*odd* neighbour, and `HiResEven` samples **only the even columns**. The merge is therefore invisible
+to the hash by construction: the extraction discards precisely the columns the assertion is about.
+
+So `C10.04` sits with `C5.06`/`C5.07` — its subject lives in the **mainscreen** half, which is the
+half the three references diverge on by 33-35% pairwise and which rule 4 therefore forbids blessing.
+`HiResEven` does not unblock it, and no variant of `HiResEven` can: any rule that includes the odd
+columns inherits the disagreement.
+
+This is the *unshowable scene* trap (`CLAUDE.md`) in its exact documented form — "a scene can arrange
+a state no picture can show; an unshowable scene hashes stably and every emulator agrees with it."
+The control scene is what caught it, and its doc comment said in advance what an equal hash would
+mean. **Write the control first; it is the only thing that distinguishes "the references agree" from
+"nothing happened".**

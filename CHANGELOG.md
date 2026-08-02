@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`C10.04` attempted and withdrawn: it is blocked by the same exclusion that unblocked `C5.15`.**
+  A Mode 5 scene with `MOSAIC = $01` was written against the control the working rules require — the
+  same canvas with mosaic off — and hashed **identically to it on both references**
+  (`0xf7ed8ab9ecd95d85` either way).
+
+  The reason is structural. A 2x1 mosaic pair merges an *even* column with its *odd* neighbour, and
+  `HiResEven` samples only the even columns, so the merge is invisible to the hash **by
+  construction**. `C10.04` therefore sits with `C5.06`/`C5.07`: its subject lives in the mainscreen
+  half, which the references diverge on by 33-35% pairwise and which rule 4 forbids blessing. No
+  variant of `HiResEven` can help — any rule including the odd columns inherits the disagreement.
+
+  Recorded rather than silently dropped, because the *attempt* is the finding: this is the
+  unshowable-scene trap in its documented form, and **the control scene is the only thing that
+  distinguishes "the references agree" from "nothing happened"**. Its doc comment said in advance
+  what an equal hash would mean, which is why the trap cost one run instead of a blessed golden that
+  proved nothing.
+
 - **`C5.15` is now blessed coverage: excluding the one undefined pixel made the rest of Mode 5
   agree.** The retraction below establishes that the first hi-res pixel of a line is a genuine
   reference disagreement on a value ares flags as *not confirmed on hardware*. Hashing it would have
