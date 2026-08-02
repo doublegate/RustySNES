@@ -7519,6 +7519,218 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; B2.07 — Frame rate vs APU clock
+; provenance: Documented (fullsnes and the SNESdev Wiki: NTSC 60.0988 Hz, PAL 50.00698 Hz; the APU's 24.576 MHz crystal is region-independent (ares apuFrequency, snes9x's two APU ratios))
+.proc test_b2_07
+    .a16
+    .i16
+    ; Measure the frame height first: it is what the expectation below is keyed on, and it
+    ; costs a frame of its own before the APU program is even uploaded.
+    sep #$20
+    .a8
+    stz $2133         ; SETINI: no interlace, which would add a line
+    jsl wait_vblank_far
+    jsl wait_vblank_far   ; a settled frame
+    rep #$30
+    .a16
+    .i16
+    lda #$0000
+    sta f:$7E0124     ; running maximum
+@fh_loop:
+    sep #$20
+    .a8
+    lda $213F         ; reset the counter read flipflops
+    lda $2137         ; latch H and V
+    lda $213D         ; V low
+    xba
+    lda $213D
+    and #$01          ; bit 0 is V bit 8; bits 1-7 are PPU2 open bus
+    xba
+    rep #$20
+    .a16
+    and #$01FF
+    cmp f:$7E0124
+    bcc :+
+    sta f:$7E0124
+    :
+    cmp #100          ; below 100 means the counter wrapped into the next frame
+    bcs @fh_loop
+    lda f:$7E0124
+    sta f:$7E0180     ; 261 NTSC, 311 PAL
+    ; Clear port 3 before the program can see a stale stop byte from a previous test.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO3
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    ; Point apu_upload at this test's own program image, which lives in another bank.
+    lda #.loword(apu_prog_117)
+    sta f:V_APU_SRC
+    sep #$20
+    .a8
+    lda #^apu_prog_117
+    sta f:V_APU_BANK
+    rep #$30
+    .a16
+    .i16
+    lda #69
+    sta f:V_APU_LEN
+    lda #$0200
+    sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack
+    lda #$0200
+    sta f:V_APU_ENTRY
+    jsl apu_upload_far
+    ; Clear the CPU-side port 0 before the program can look at it. The previous test left the
+    ; release byte there, and a program whose release loop sees it immediately jumps back to
+    ; the IPL before the cart has read a thing — which reads as a wrong answer, not a race.
+    sep #$20
+    .a8
+    lda #$00
+    sta APUIO0
+    ; Wait for the program to announce it is accumulating -- BOUNDED, so an APU that never
+    ; booted reports SKIP instead of taking the whole battery with it.
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@b2wait:
+    sep #$20
+    .a8
+    lda APUIO1
+    cmp #$3C
+    beq @b2go
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @b2wait
+    jmp @b2timeout
+@b2go:
+    ; Count frames. wait_vblank_far returns at vblank start, so this is exactly N frame periods
+    ; of CPU time -- the interval the APU's tick count is being measured against.
+    rep #$30
+    .a16
+    .i16
+    ldx #48
+@b2frame:
+    phx
+    jsl wait_vblank_far
+    plx
+    dex
+    bne @b2frame
+    ; Stop it, then collect. Port 3 is the command channel; ports 1 and 2 carry the sum back.
+    sep #$20
+    .a8
+    lda #$5A
+    sta APUIO3
+    rep #$30
+    .a16
+    .i16
+    ldx #$0000
+@b2done:
+    sep #$20
+    .a8
+    lda APUIO0
+    cmp #$5A
+    beq @b2got
+    rep #$30
+    .a16
+    .i16
+    inx
+    cpx #$8000
+    bne @b2done
+    jmp @b2timeout
+@b2got:
+    sep #$20
+    .a8
+    lda APUIO1
+    sta f:$7E0182
+    lda APUIO2
+    sta f:$7E0183
+    lda #$A5
+    sta APUIO0
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0182
+    and #$00FF
+    sta f:$7E0184
+    lda f:$7E0183
+    and #$00FF
+    xba
+    ora f:$7E0184
+    sta f:$7E0184     ; the 16-bit tick total
+    ; record slot 275: B2.07 APU timer-0 ticks over 48 frames
+    sta f:$7EE426
+    lda f:$7E0180
+    ; record slot 276: B2.07 measured frame height (261 NTSC, 311 PAL)
+    sta f:$7EE428
+    ; Key on what was MEASURED, not on the region bit -- B2.10 had to settle where that bit
+    ; even is, and a frame-rate test must not depend on the answer.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0180
+    cmp #280
+    bcs @b2pal
+    ; NTSC: 8010 ticks/s / 60.0988 Hz = 133.3 a frame, 6398 over 48. The band is +/-2%, which
+    ; excludes a wrong scanline count or a region-scaled APU clock -- not the fourth decimal.
+    lda f:$7E0184
+    cmp #$187E
+    bcs :+
+    jmp @fail1
+  :
+    cmp #$197F
+    bcc :+
+    jmp @fail1
+  :
+    bra @b2end
+@b2pal:
+    ; PAL: 8010 / 50.0070 Hz = 160.2 a frame, 7689 over 48.
+    lda f:$7E0184
+    cmp #$1D6F
+    bcs :+
+    jmp @fail2
+  :
+    cmp #$1EA4
+    bcc :+
+    jmp @fail2
+  :
+@b2end:
+    bra @pass
+@b2timeout:
+    sep #$20
+    .a8
+    lda #$FF
+    sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker
+    jml test_restore
+@pass:
+    sep #$20
+    .a8
+    lda #$01
+    sta f:$7EE010
+    jml test_restore
+@fail1:
+    ; the frame rate measured against the APU's clock is not NTSC's 60.0988 Hz. Either the frame is the wrong number of master clocks, or the APU is being clocked from the video clock instead of its own crystal -- which makes it speed up exactly when the frames get shorter, and this reading blind to both
+    sep #$20
+    .a8
+    lda #$02
+    sta f:$7EE010
+    jml test_restore
+@fail2:
+    ; the frame rate measured against the APU's clock is not PAL's 50.00698 Hz. The APU crystal is region-independent, so this reading must be ~20% HIGHER than the NTSC image's over the same frame count; equal readings mean the APU is scaling with the video clock
+    sep #$20
+    .a8
+    lda #$04
+    sta f:$7EE010
+    jml test_restore
+.endproc
+
 ; A5.S01 — Sweep: CLC
 ; provenance: Documented (WDC/GTE/VLSI instruction-operation tables agree; docs/accuracysnes-timing-oracle.md)
 .proc test_a5_s01
@@ -23604,11 +23816,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_117)
+    lda #.loword(apu_prog_118)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_117
+    lda #^apu_prog_118
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -23751,11 +23963,11 @@ CATALOG_IMPL = 1
     phk
     plb
     ; Point apu_upload at this test's own program image, which lives in another bank.
-    lda #.loword(apu_prog_118)
+    lda #.loword(apu_prog_119)
     sta f:V_APU_SRC
     sep #$20
     .a8
-    lda #^apu_prog_118
+    lda #^apu_prog_119
     sta f:V_APU_BANK
     rep #$30
     .a16
@@ -34757,6 +34969,13 @@ apu_prog_116:
     .byte $5A, $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4
     .byte $F1, $5F, $C0, $FF
 apu_prog_117:
+    .byte $CD, $EF, $BD, $8F, $01, $FA, $8F, $81, $F1, $8F, $00, $10
+    .byte $8F, $00, $11, $E4, $FD, $E8, $3C, $C4, $F5, $E4, $FD, $C4
+    .byte $12, $E4, $10, $60, $84, $12, $C4, $10, $E4, $11, $88, $00
+    .byte $C4, $11, $E4, $F7, $68, $5A, $D0, $E9, $E4, $10, $C4, $F5
+    .byte $E4, $11, $C4, $F6, $E8, $5A, $C4, $F4, $E4, $F4, $68, $A5
+    .byte $D0, $FA, $E8, $80, $C4, $F1, $5F, $C0, $FF
+apu_prog_118:
     .byte $5F, $0C, $02, $C3, $77, $77, $77, $77, $77, $77, $77, $77
     .byte $CD, $EF, $BD, $E8, $F7, $C5, $00, $01, $E8, $00, $C5, $01
     .byte $01, $E8, $F7, $C5, $02, $01, $E8, $00, $C5, $03, $01, $E8
@@ -34786,7 +35005,7 @@ apu_prog_117:
     .byte $C4, $F5, $E8, $09, $C4, $F2, $E4, $F3, $C4, $F6, $E8, $5A
     .byte $C4, $F4, $E4, $F4, $68, $A5, $D0, $FA, $E8, $80, $C4, $F1
     .byte $5F, $C0, $FF
-apu_prog_118:
+apu_prog_119:
     .byte $5F, $0C, $02, $83, $79, $79, $79, $79, $79, $79, $79, $79
     .byte $CD, $EF, $BD, $E8, $03, $C5, $00, $01, $E8, $02, $C5, $01
     .byte $01, $E8, $03, $C5, $02, $01, $E8, $02, $C5, $03, $01, $E8
@@ -34820,7 +35039,7 @@ apu_prog_118:
 .export _test_flags
 
 _test_count:
-    .word 342
+    .word 343
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -35105,6 +35324,7 @@ _test_entries:
     .faraddr test_e3_06
     .faraddr test_e3_08
     .faraddr test_e3_09
+    .faraddr test_b2_07
     .faraddr test_e3_13
     .faraddr test_e9_02
     .faraddr test_f1_01
@@ -35450,6 +35670,7 @@ _test_flags:
     .byte $01   ; E3.06
     .byte $01   ; E3.08
     .byte $01   ; E3.09
+    .byte $01   ; B2.07
     .byte $01   ; E3.13
     .byte $01   ; E9.02
     .byte $01   ; F1.01
@@ -35795,6 +36016,7 @@ _test_names:
     .addr @n_e3_06
     .addr @n_e3_08
     .addr @n_e3_09
+    .addr @n_b2_07
     .addr @n_e3_13
     .addr @n_e9_02
     .addr @n_f1_01
@@ -36699,6 +36921,9 @@ _test_names:
 @n_e3_09:
     .byte 22
     .byte "Waits: CPU 10, timer 8"
+@n_b2_07:
+    .byte 23
+    .byte "Frame rate vs APU clock"
 @n_e3_13:
     .byte 20
     .byte "Regs shadow into RAM"
@@ -37124,7 +37349,7 @@ _page_len:
     .byte 4
     .byte 2
     .byte 4
-    .byte 5
+    .byte 6
     .byte 10
     .byte 3
     .byte 5
@@ -37178,32 +37403,32 @@ _page_off:
     .word 164
     .word 166
     .word 170
-    .word 175
-    .word 185
-    .word 188
-    .word 193
+    .word 176
+    .word 186
+    .word 189
     .word 194
-    .word 204
-    .word 209
-    .word 215
-    .word 222
-    .word 232
-    .word 236
-    .word 246
-    .word 250
-    .word 259
-    .word 265
-    .word 267
-    .word 277
-    .word 281
-    .word 291
-    .word 294
-    .word 304
-    .word 311
-    .word 318
-    .word 328
-    .word 331
-    .word 341
+    .word 195
+    .word 205
+    .word 210
+    .word 216
+    .word 223
+    .word 233
+    .word 237
+    .word 247
+    .word 251
+    .word 260
+    .word 266
+    .word 268
+    .word 278
+    .word 282
+    .word 292
+    .word 295
+    .word 305
+    .word 312
+    .word 319
+    .word 329
+    .word 332
+    .word 342
 
 _page_tests:
     .word 0
@@ -37257,7 +37482,6 @@ _page_tests:
     .word 70
     .word 71
     .word 72
-    .word 307
     .word 308
     .word 309
     .word 310
@@ -37292,6 +37516,7 @@ _page_tests:
     .word 339
     .word 340
     .word 341
+    .word 342
     .word 30
     .word 31
     .word 32
@@ -37381,6 +37606,7 @@ _page_tests:
     .word 150
     .word 151
     .word 153
+    .word 281
     .word 134
     .word 136
     .word 137
@@ -37455,7 +37681,7 @@ _page_tests:
     .word 278
     .word 279
     .word 280
-    .word 281
+    .word 282
     .word 193
     .word 194
     .word 200
@@ -37486,7 +37712,7 @@ _page_tests:
     .word 246
     .word 247
     .word 248
-    .word 282
+    .word 283
     .word 206
     .word 207
     .word 208
@@ -37524,7 +37750,6 @@ _page_tests:
     .word 268
     .word 269
     .word 270
-    .word 283
     .word 284
     .word 285
     .word 286
@@ -37548,3 +37773,4 @@ _page_tests:
     .word 304
     .word 305
     .word 306
+    .word 307

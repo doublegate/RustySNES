@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`F1.10` is now excluded from Mesen2's failing count as well as ares', on the same evidence.**
+  Adding `B2.07` made Mesen2's **PAL** verdict on that row flip between runs of a single build —
+  two runs of the same image gave `F1.03` alone, then `F1.03` + `F1.10`. That is the third
+  host/image combination to show it. The row samples `$4212` right at the vblank edge, so any test
+  added ahead of Group F moves the phase that decides it, and a gate that counts it fails on work
+  with nothing to do with controller ports.
+
+  `mesen_crossval.lua` now skips one index supplied through `ACCURACYSNES_SKIP_INDEX`, which
+  `crossval.sh` resolves **by ID** from `SOURCE_CATALOG.tsv` — the index moves whenever a test is
+  added ahead of it, which is exactly the circumstance that exposed the problem. The row is still
+  logged, just not counted, and the ares gate now shares the same resolved index instead of
+  computing its own. Three consecutive full cross-validation runs are stable.
+
 - **The APU ran 0.92% slow on PAL: its clock divisor was pinned to the NTSC master rate.**
   `Bus::advance_master` converts master ticks to SMP base clocks through a fixed rational, and the
   denominator was `715_909` — the NTSC master clock — in **both** regions. The APU runs from its own
@@ -39,6 +52,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both images still cross-validate three ways.
 
 ### Added
+
+- **`B2.07`/`B2.08` — the frame rate, measured against the APU's clock.** "60.0988 Hz" is a claim
+  about wall-clock time and a cart has no wall clock; the one independent timebase it can reach is
+  the APU's, whose 24.576 MHz crystal runs at the same rate in both regions. Timer 0 at `T0DIV = 1`
+  steps `T0OUT` every 256 SMP base clocks — 8,010 ticks a second on either console — so counting
+  ticks over a known number of frames measures the frame rate in units of that crystal.
+
+  **This only became a real measurement once the APU stopped scaling with the video clock** (the
+  region-independence fix above). An APU that speeds up exactly when the frames get shorter cannot
+  measure how long a frame is; the row would have read the same number on both images.
+
+  Over 48 frames: **~6,398 NTSC** against **~7,689 PAL**, 1,291 apart, keyed on the *measured frame
+  height* rather than the region bit. The band is ±2%, and the doc says plainly that this pins the
+  rate to about a part in fifty — **not** to the precision the quoted figures have. What it excludes
+  is a wrong scanline count or a region-scaled APU clock, both percent-level errors and one of which
+  this emulator had.
+
+  The cart cannot sit in `upload_and_run`'s wait loop while it counts frames, so the row drives the
+  program itself through a new `upload_only`: the SPC announces it is accumulating, the cart counts
+  vblanks, then writes a stop byte. Every wait on both sides is bounded, so an APU that never answers
+  reports SKIP rather than hanging the battery. Coverage `355 → 356 of 443`.
 
 - **`A5.18` — `BRK` costs 8 cycles native and 7 in emulation.** The extra native cycle is the PBR
   push: a native frame is PBR/PCH/PCL/P and an emulation frame is the same without PBR, so the

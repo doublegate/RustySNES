@@ -25,6 +25,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::dsl::{Asm, Kind, Provenance, Test};
 use crate::spc::{DONE, PORT0, PORT1, PORT2, PORT3, RELEASE, Spc};
+use crate::tests::bus::measure_frame_height;
 
 /// Hands out a unique suffix for each uploaded SPC700 image's label.
 ///
@@ -148,6 +149,7 @@ pub fn all() -> Vec<Test> {
         e3_06(),
         e3_08(),
         e3_09(),
+        b2_07(),
         e3_13(),
         // LAST, and it has to be. Every other program leaves FLG's noise rate at zero, so the
         // noise LFSR never advances and `E9.01` reads the power-on seed. `E9.02` steps it and
@@ -175,6 +177,43 @@ fn upload_and_run(a: &mut Asm, prog: &Spc) {
 /// `E4.03` needs exactly that: one program to dirty the APU zero page and a second to observe that
 /// the IPL cleaned it on the way back in. Without distinct labels the second upload redefines
 /// `@wait` and `@ran` and the assembler rejects the file.
+/// Emit only the UPLOAD half of [`upload_and_run_tagged`]: the transfer and the port-0 clear,
+/// stopping short of the wait-for-done loop.
+///
+/// Split out for the one row that has to do something on the CPU side **while** the SPC program
+/// runs — `B2.07`/`B2.08` count frames against the APU's timer, so the cart cannot be sitting in a
+/// busy-wait. Everything else should keep calling [`upload_and_run`], which is this plus the wait.
+fn upload_only(a: &mut Asm, prog: &Spc) {
+    let label = format!("apu_prog_{}", next_prog_id());
+    a.d(&format!("{label}:"));
+    for line in prog.as_ca65("    ").lines() {
+        a.d(line);
+    }
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.c("Point apu_upload at this test's own program image, which lives in another bank.");
+    a.l(&format!("lda #.loword({label})"));
+    a.l("sta f:V_APU_SRC");
+    a.l("sep #$20");
+    a.l(&format!("lda #^{label}"));
+    a.l("sta f:V_APU_BANK");
+    a.l("rep #$30");
+    a.l(&format!("lda #{}", prog.bytes().len()));
+    a.l("sta f:V_APU_LEN");
+    a.l("lda #$0200");
+    a.l("sta f:V_APU_DEST     ; APU RAM $0200: clear of the zero page and the stack");
+    a.l("lda #$0200");
+    a.l("sta f:V_APU_ENTRY");
+    a.l("jsl apu_upload_far");
+    a.c("Clear the CPU-side port 0 before the program can look at it. The previous test left the");
+    a.c("release byte there, and a program whose release loop sees it immediately jumps back to");
+    a.c("the IPL before the cart has read a thing — which reads as a wrong answer, not a race.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta APUIO0");
+}
+
 fn upload_and_run_tagged(a: &mut Asm, prog: &Spc, tag: &str) {
     // The image goes in the out-of-bank data segment, not inline in the test body: these are
     // several hundred bytes each and bank $00 is finite. `apu_upload` takes a 24-bit pointer
@@ -357,8 +396,13 @@ fn apu_require_power_on(a: &mut Asm, why: &str) {
 /// never answers, and that arm has to record SKIP and leave — a test whose APU did not boot has
 /// asserted nothing, and reporting a pass would be a lie about the only thing it was measuring.
 fn apu_timeout_arm(a: &mut Asm) {
+    apu_timeout_arm_tagged(a, "timeout");
+}
+
+/// [`apu_timeout_arm`] with the label named, for a test whose bounded waits branch somewhere else.
+fn apu_timeout_arm_tagged(a: &mut Asm, label: &str) {
     a.l("bra @pass");
-    a.label("timeout");
+    a.label(label);
     a.l("sep #$20");
     a.l("lda #$FF");
     a.l("sta f:V_TEST_RESULT   ; SKIP: the APU never published a done marker");
@@ -8743,6 +8787,224 @@ fn e3_13_configure(prog: &mut Spc) {
         dsp_write(prog, v | 0x07, 0x7F); // GAIN: direct, full scale
         dsp_write(prog, v | 0x05, 0x00); // ADSR1: GAIN is in charge
     }
+}
+
+/// Emit [`b2_07`]'s CPU side: upload, wait for the program to start, count frames, stop it, collect.
+///
+/// Split out because the whole point is that the cart is NOT sitting in a wait loop while the APU
+/// accumulates — so this cannot be `upload_and_run`, and spelling the handshake out inline made the
+/// test itself unreadable. **Every wait here is bounded**: an APU that never answers reports SKIP
+/// through `@b2timeout` rather than hanging the battery.
+fn b2_07_drive(a: &mut Asm, prog: &Spc, frames: u16, stop: u8, started: u8) {
+    a.c("Clear port 3 before the program can see a stale stop byte from a previous test.");
+    a.l("sep #$20");
+    a.l("lda #$00");
+    a.l("sta APUIO3");
+    upload_only(a, prog);
+
+    a.c("Wait for the program to announce it is accumulating -- BOUNDED, so an APU that never");
+    a.c("booted reports SKIP instead of taking the whole battery with it.");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("b2wait");
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l(&format!("cmp #${started:02X}"));
+    a.l("beq @b2go");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$8000");
+    a.l("bne @b2wait");
+    a.l("jmp @b2timeout");
+    a.label("b2go");
+
+    a.c(
+        "Count frames. wait_vblank_far returns at vblank start, so this is exactly N frame periods",
+    );
+    a.c("of CPU time -- the interval the APU's tick count is being measured against.");
+    a.l("rep #$30");
+    a.l(&format!("ldx #{frames}"));
+    a.label("b2frame");
+    a.l("phx");
+    a.l("jsl wait_vblank_far");
+    a.l("plx");
+    a.l("dex");
+    a.l("bne @b2frame");
+
+    a.c("Stop it, then collect. Port 3 is the command channel; ports 1 and 2 carry the sum back.");
+    a.l("sep #$20");
+    a.l(&format!("lda #${stop:02X}"));
+    a.l("sta APUIO3");
+    a.l("rep #$30");
+    a.l("ldx #$0000");
+    a.label("b2done");
+    a.l("sep #$20");
+    a.l("lda APUIO0");
+    a.l(&format!("cmp #${DONE:02X}"));
+    a.l("beq @b2got");
+    a.l("rep #$30");
+    a.l("inx");
+    a.l("cpx #$8000");
+    a.l("bne @b2done");
+    a.l("jmp @b2timeout");
+    a.label("b2got");
+    a.l("sep #$20");
+    a.l("lda APUIO1");
+    a.l("sta f:$7E0182");
+    a.l("lda APUIO2");
+    a.l("sta f:$7E0183");
+    a.l(&format!("lda #${RELEASE:02X}"));
+    a.l("sta APUIO0");
+}
+
+/// `B2.07`/`B2.08` — the frame rate, measured against the APU's clock.
+///
+/// # Why the APU is the only clock the cart has
+///
+/// "60.0988 Hz" is a statement about *wall-clock time*, and a cart has no wall clock. The one
+/// independent timebase it can reach is the APU's: the SPC700 runs from its own 24.576 MHz crystal,
+/// **the same rate in both regions**, so counting APU timer ticks over a known number of frames
+/// measures the frame rate in units of that crystal.
+///
+/// That only became a real measurement in `v1.29.0`. The SPC divisor used to be pinned to the NTSC
+/// master clock, which made the APU scale with the video clock — and an APU that speeds up exactly
+/// when the frames get shorter cannot measure how long a frame is. This row would have read the
+/// same number in both regions.
+///
+/// # What the two readings are
+///
+/// Timer 0 at `T0DIV = 1` steps `T0OUT` every 256 SMP base clocks, so 2,050,560 / 256 = **8,010
+/// ticks a second** on either console. Over `B2_FRAMES` (48) frames:
+///
+/// | image | frame rate | ticks/frame | over 48 frames |
+/// |---|---:|---:|---:|
+/// | NTSC | 60.0988 Hz | 133.3 | **~6,398** |
+/// | PAL | 50.0070 Hz | 160.2 | **~7,689** |
+///
+/// The two are 1,291 apart, so the region is unmistakable — and the row keys its expectation on the
+/// **measured frame height**, never on the region bit, whose position `B2.10` had to settle.
+///
+/// # What it does and does not pin
+///
+/// The band is +/-2%, which pins the frame rate to about a part in fifty. **That is not the
+/// precision the quoted figures have**, and saying so is the point: distinguishing 60.0988 from a
+/// flat 60.0 is one part in 600, which needs a count ten times longer than the battery should
+/// spend. What this row excludes is a core whose frame rate is wrong by a *scanline count* or whose
+/// APU is region-scaled — both of which are percent-level errors, and one of which this emulator
+/// actually had.
+///
+/// # The handshake is bounded on both sides
+///
+/// The cart cannot sit in `upload_and_run`'s wait loop while it counts frames, so this uses
+/// [`upload_only`] and drives the program itself: the SPC announces it is accumulating, the cart
+/// counts vblanks, then writes a stop byte. **Every wait on both sides is bounded** — an APU that
+/// never answers reports SKIP rather than hanging the battery, and the SPC's own poll loop exits on
+/// a counter as well as on the stop byte, so a cart that dies mid-count cannot strand it.
+fn b2_07() -> Test {
+    /// Frames counted. Long enough that the two regions are ~1,300 ticks apart, short enough that
+    /// the battery does not grow by a second.
+    const B2_FRAMES: u16 = 48;
+    /// The cart's "stop accumulating" byte on port 3.
+    const STOP: u8 = 0x5A;
+    /// The program's "I am accumulating" announcement on port 1.
+    const STARTED: u8 = 0x3C;
+
+    let mut prog = Spc::new();
+    prog.mov_x_imm(0xEF)
+        .mov_sp_x()
+        .mov_dp_imm(0xFA, 0x01) // T0DIV = 1: T0OUT steps every 256 SMP base clocks
+        .mov_dp_imm(0xF1, 0x81) // enable timer 0; bit 7 keeps the IPL mapped
+        .mov_dp_imm(0x10, 0x00) // sum low
+        .mov_dp_imm(0x11, 0x00) // sum high
+        .mov_a_dp(0xFD) // drain, so the count starts from zero
+        .mov_a_imm(STARTED)
+        .mov_dp_a(PORT1); // and only now tell the cart to start counting frames
+
+    // Accumulate T0OUT into a 16-bit sum until the cart says stop. MOV never touches carry, so the
+    // high byte's `adc #$00` picks up exactly the carry the low byte's add produced.
+    let poll = prog.here();
+    prog.mov_a_dp(0xFD) // T0OUT, read-and-clear
+        .mov_dp_a(0x12)
+        .mov_a_dp(0x10)
+        .clrc()
+        .adc_a_dp(0x12)
+        .mov_dp_a(0x10)
+        .mov_a_dp(0x11)
+        .adc_a_imm(0x00)
+        .mov_dp_a(0x11)
+        .mov_a_dp(PORT3)
+        .cmp_a_imm(STOP);
+    prog.bne_back(poll);
+
+    prog.mov_a_dp(0x10)
+        .mov_dp_a(PORT1)
+        .mov_a_dp(0x11)
+        .mov_dp_a(PORT2)
+        .mov_a_imm(DONE)
+        .mov_dp_a(PORT0)
+        .release_to_ipl();
+
+    let mut a = Asm::new();
+    a.c("Measure the frame height first: it is what the expectation below is keyed on, and it");
+    a.c("costs a frame of its own before the APU program is even uploaded.");
+    measure_frame_height(&mut a);
+    a.l("sta f:$7E0180     ; 261 NTSC, 311 PAL");
+
+    b2_07_drive(&mut a, &prog, B2_FRAMES, STOP, STARTED);
+    a.l("rep #$30");
+    a.l("lda f:$7E0182");
+    a.l("and #$00FF");
+    a.l("sta f:$7E0184");
+    a.l("lda f:$7E0183");
+    a.l("and #$00FF");
+    a.l("xba");
+    a.l("ora f:$7E0184");
+    a.l("sta f:$7E0184     ; the 16-bit tick total");
+    a.record(275, "B2.07 APU timer-0 ticks over 48 frames");
+    a.l("lda f:$7E0180");
+    a.record(276, "B2.07 measured frame height (261 NTSC, 311 PAL)");
+
+    a.c("Key on what was MEASURED, not on the region bit -- B2.10 had to settle where that bit");
+    a.c("even is, and a frame-rate test must not depend on the answer.");
+    a.l("rep #$30");
+    a.l("lda f:$7E0180");
+    a.l("cmp #280");
+    a.l("bcs @b2pal");
+    a.c("NTSC: 8010 ticks/s / 60.0988 Hz = 133.3 a frame, 6398 over 48. The band is +/-2%, which");
+    a.c("excludes a wrong scanline count or a region-scaled APU clock -- not the fourth decimal.");
+    a.l("lda f:$7E0184");
+    a.assert_a16_range(
+        6270,
+        6526,
+        "the frame rate measured against the APU's clock is not NTSC's 60.0988 Hz. Either the \
+         frame is the wrong number of master clocks, or the APU is being clocked from the video \
+         clock instead of its own crystal -- which makes it speed up exactly when the frames get \
+         shorter, and this reading blind to both",
+    );
+    a.l("bra @b2end");
+    a.label("b2pal");
+    a.c("PAL: 8010 / 50.0070 Hz = 160.2 a frame, 7689 over 48.");
+    a.l("lda f:$7E0184");
+    a.assert_a16_range(
+        7535,
+        7843,
+        "the frame rate measured against the APU's clock is not PAL's 50.00698 Hz. The APU crystal \
+         is region-independent, so this reading must be ~20% HIGHER than the NTSC image's over the \
+         same frame count; equal readings mean the APU is scaling with the video clock",
+    );
+    a.label("b2end");
+    apu_timeout_arm_tagged(&mut a, "b2timeout");
+    a.finish(
+        "B2.07",
+        'B',
+        "Frame rate vs APU clock",
+        Provenance::Documented(
+            "fullsnes and the SNESdev Wiki: NTSC 60.0988 Hz, PAL 50.00698 Hz; the APU's 24.576 MHz \
+             crystal is region-independent (ares apuFrequency, snes9x's two APU ratios)",
+        ),
+        Kind::Scored,
+        None,
+    )
 }
 
 /// Emit: set `$F0` to `test`, then accumulate timer-0 ticks over `polls` passes into `port`.

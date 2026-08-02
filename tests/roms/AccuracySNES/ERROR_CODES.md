@@ -1615,6 +1615,15 @@ Provenance: **Contested** (superfamicom.org's timing page states the exception a
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### B2.07 — Frame rate vs APU clock
+
+Provenance: **Documented** (fullsnes and the SNESdev Wiki: NTSC 60.0988 Hz, PAL 50.00698 Hz; the APU's 24.576 MHz crystal is region-independent (ares apuFrequency, snes9x's two APU ratios)). Kind: scored.
+
+| Code | Byte | Meaning |
+|---|---|---|
+| 1 | `$02` | the frame rate measured against the APU's clock is not NTSC's 60.0988 Hz. Either the frame is the wrong number of master clocks, or the APU is being clocked from the video clock instead of its own crystal -- which makes it speed up exactly when the frames get shorter, and this reading blind to both |
+| 2 | `$04` | the frame rate measured against the APU's clock is not PAL's 50.00698 Hz. The APU crystal is region-independent, so this reading must be ~20% HIGHER than the NTSC image's over the same frame count; equal readings mean the APU is scaling with the video clock |
+
 ## Group D
 
 ### D1.01 — DMA mode 0
