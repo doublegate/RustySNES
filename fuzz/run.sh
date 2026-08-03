@@ -61,6 +61,29 @@ fi
 # See note 1 above. Exported, not passed per-command, because cargo-fuzz re-execs the target.
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 
+# The target triple, passed EXPLICITLY, and this is note 4 -- learned the same way as the others.
+#
+# `cargo fuzz` defaults `--target` to the host triple **the cargo-fuzz binary itself was built
+# for**, not the one the toolchain targets. CI installs cargo-fuzz through `taiki-e/install-action`,
+# which ships a statically linked musl build -- so the default became
+# `x86_64-unknown-linux-musl` on a gnu runner, and every target failed to build with
+#
+#     error: sanitizer is incompatible with statically linked libc, ...
+#     error[E0463]: can't find crate for `core` (the musl target may not be installed)
+#
+# `run.sh` reported all 14 as FINDING, because a build failure is a non-zero exit like a crash is.
+# That is the note-1 failure mode wearing a different hat: a campaign claiming fourteen findings
+# and holding none. The tell is the same -- every target "finds" something within a second or two,
+# and `fuzz/artifacts/` is empty.
+#
+# It never showed up locally because a `cargo install`ed cargo-fuzz is a gnu build whose default
+# is already right. Asking rustc for the host is what makes the two environments agree.
+HOST_TRIPLE="${FUZZ_TARGET_TRIPLE:-$(rustc +nightly -vV | awk '/^host:/ { print $2 }')}"
+if [ -z "$HOST_TRIPLE" ]; then
+  echo "error: could not determine the host triple from 'rustc +nightly -vV'" >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Seeding
 # ---------------------------------------------------------------------------
@@ -144,7 +167,7 @@ for t in "${TARGETS[@]}"; do
 
   log="$HERE/target/$t.campaign.log"
   mkdir -p "$HERE/target"
-  if (cd "$REPO" && cargo +nightly fuzz run "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
+  if (cd "$REPO" && cargo +nightly fuzz run --target "$HOST_TRIPLE" "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
     echo "clean   $(grep -oE 'cov: [0-9]+ ft: [0-9]+' "$log" | tail -1)"
   else
     echo "FINDING -- see $log and fuzz/artifacts/$t/"
