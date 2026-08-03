@@ -85,7 +85,7 @@ export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 # and cannot be fooled by what `rustc` happens to resolve to.
 HOST_TRIPLE="${FUZZ_TARGET_TRIPLE:-$(rustup run nightly rustc -vV | awk '/^host:/ { print $2 }')}"
 if [ -z "$HOST_TRIPLE" ]; then
-  echo "error: could not determine the host triple from 'rustc +nightly -vV'" >&2
+  echo "error: could not determine the host triple from 'rustup run nightly rustc -vV'" >&2
   exit 1
 fi
 
@@ -172,7 +172,11 @@ for t in "${TARGETS[@]}"; do
 
   log="$HERE/target/$t.campaign.log"
   mkdir -p "$HERE/target"
-  if (cd "$REPO" && cargo +nightly fuzz run --target "$HOST_TRIPLE" "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
+  # `rustup run nightly cargo`, for the reason spelled out at the HOST_TRIPLE assignment above:
+  # the `+toolchain` form is rustup's shim, not cargo's. Leaving this line as `cargo +nightly`
+  # while arguing against exactly that a hundred lines up was an inconsistency a reviewer had to
+  # point out.
+  if (cd "$REPO" && rustup run nightly cargo fuzz run --target "$HOST_TRIPLE" "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
     echo "clean   $(grep -oE 'cov: [0-9]+ ft: [0-9]+' "$log" | tail -1)"
   else
     echo "FINDING -- see $log and fuzz/artifacts/$t/"

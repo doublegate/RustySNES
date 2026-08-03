@@ -91,8 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exceed `4 * dot`. And the target is computed inside the `irq_enable_h` branch instead of above it,
   because the V-only arm never reads it — so a ROM that uses no H-IRQ now pays nothing at all.
 
-  **14.34 ms → 7.03 ms, a 47% improvement**, back to the pre-regression baseline, and the gate
-  passes. Safety is an exhaustive test (`the_bounded_walk_matches_an_exhaustive_walk_from_zero`)
+  **14.34 ms → 7.03 ms on current `main`, a 51% reduction**, and the gate passes. Two corrections
+  to an earlier draft of this entry, both caught in review: 47% was Criterion's own
+  change-against-its-saved-baseline, a different comparison than the one the sentence was making;
+  and 7.03 ms is **3% above** the 6.83 ms measured before `#300`, not "back to" it — the remaining
+  gap is the other commits that landed in the same window. Safety is an exhaustive test (`the_bounded_walk_matches_an_exhaustive_walk_from_zero`)
   comparing against the **original function verbatim** for every `HTIME` on both line lengths —
   the change is compared with what it replaced, not with a belief about what it replaced. Battery
   56/56, framebuffer goldens unmoved, 68 workspace suites green.
