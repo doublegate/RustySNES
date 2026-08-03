@@ -78,7 +78,12 @@ export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 #
 # It never showed up locally because a `cargo install`ed cargo-fuzz is a gnu build whose default
 # is already right. Asking rustc for the host is what makes the two environments agree.
-HOST_TRIPLE="${FUZZ_TARGET_TRIPLE:-$(rustc +nightly -vV | awk '/^host:/ { print $2 }')}"
+# `rustup run nightly rustc`, not `rustc +nightly`: the `+toolchain` form is parsed by rustup's
+# shim, not by rustc itself, so it fails wherever `rustc` on PATH is a real binary rather than the
+# shim -- a distro toolchain, or a container that installed rustc without the wrapper. This script
+# already requires rustup (it checks `rustup toolchain list` above), so `rustup run` costs nothing
+# and cannot be fooled by what `rustc` happens to resolve to.
+HOST_TRIPLE="${FUZZ_TARGET_TRIPLE:-$(rustup run nightly rustc -vV | awk '/^host:/ { print $2 }')}"
 if [ -z "$HOST_TRIPLE" ]; then
   echo "error: could not determine the host triple from 'rustc +nightly -vV'" >&2
   exit 1

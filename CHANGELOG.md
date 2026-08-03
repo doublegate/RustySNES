@@ -111,8 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run.sh` counts a non-zero exit as a finding, because a build failure and a crash look alike.
 
   It never reproduced locally because a `cargo install`ed cargo-fuzz is a gnu build whose default is
-  already correct. `run.sh` now passes `--target` explicitly, taken from `rustc +nightly -vV`, so
-  both environments agree. Verified by running a real campaign: `rom_header` clean at
+  already correct. `run.sh` now passes `--target` explicitly, taken from `rustup run nightly rustc -vV`
+  (not `rustc +nightly` — the `+toolchain` form is rustup's shim, not rustc's, so it fails wherever
+  `rustc` on PATH is a real binary), so both environments agree. Verified by running a real campaign: `rom_header` clean at
   `cov: 759 ft: 978`, where before it exited in under a second having built nothing.
 
 - **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**

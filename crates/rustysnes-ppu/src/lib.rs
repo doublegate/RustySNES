@@ -172,7 +172,19 @@ const fn hirq_trigger_dot(htime: u16, short_line: bool) -> u16 {
     // layout is two irregular dots in a 340-dot line, and a closed form would encode their
     // positions a second time. `the_bounded_walk_matches_an_exhaustive_walk_from_zero` pins this
     // against the original for every `HTIME` on both line lengths.
-    let mut dot = (target.saturating_sub(4) as u16).div_ceil(4);
+    // Computed in u32 and clamped BEFORE the cast. `target` is `4 * htime + 14`, so it leaves
+    // `u16` once `htime` passes ~16380 — and `irq_h` is restored straight from a save state by
+    // `read_u16()` with no masking, which a `save_state` fuzz target reaches. Casting first would
+    // wrap such a target to a small number and send the walk back to scanning all 340 dots, per
+    // dot, 89,000 times a frame: exactly the pathology this function was rewritten to remove,
+    // reachable from untrusted input. It never produced a WRONG answer -- truncation only lowers
+    // the start, and a real match exists only for `htime <= 337` where nothing truncates -- but
+    // that is an argument a reader should not have to reconstruct.
+    let start = target.saturating_sub(4).div_ceil(4);
+    if start > DOTS_PER_LINE as u32 {
+        return u16::MAX;
+    }
+    let mut dot = start as u16;
     while dot <= DOTS_PER_LINE {
         if clocks_before_dot(dot, short_line) >= target {
             return dot;
@@ -1778,8 +1790,13 @@ mod tests {
             u16::MAX
         }
 
+        // The FULL `u16` domain, not a plausible-looking prefix. The first version of this test
+        // stopped at 1023, which is above every `HTIME` hardware can produce and below every one
+        // that overflows the lower-bound arithmetic — so it could not have caught the truncation a
+        // reviewer spotted in that arithmetic. `irq_h` comes back from a save state unmasked, so
+        // "no ROM can set that" is not a bound this function gets to assume.
         for short_line in [false, true] {
-            for htime in 0..=1023u16 {
+            for htime in 0..=u16::MAX {
                 assert_eq!(
                     hirq_trigger_dot(htime, short_line),
                     walked_from_zero(htime, short_line),
