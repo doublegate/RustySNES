@@ -157,19 +157,56 @@ const fn hirq_match_clock(htime: u16) -> u32 {
 /// counter never reaches it, so the IRQ simply never fires for that `HTIME`.
 const fn hirq_trigger_dot(htime: u16, short_line: bool) -> u16 {
     let target = hirq_match_clock(htime);
-    let mut dot = 0u16;
-    let mut clock = 0u32;
-    // Walked rather than closed-form: the layout is two irregular dots in a 340-dot line, and a
-    // closed form would have to encode their positions a second time. `DOTS_PER_LINE + 1` covers
-    // the long line's extra dot; the loop is const-evaluable and runs at most 341 steps.
+    // Walked, but NOT from dot zero, and that distinction is worth 6.5 ms a frame.
+    //
+    // `check_hv_irq` runs once per dot — some 89,000 times a frame — and the first version of this
+    // walked from dot 0 every time, up to 341 steps, for ~30 million iterations a frame. It halved
+    // headless throughput (6.8 ms -> 13.3 ms on a dev machine) and tripped the frame-time gate.
+    //
+    // Every dot is at least 4 clocks, so the answer cannot be below `ceil((target - 4) / 4)` —
+    // the `- 4` because the two 6-clock dots can make a prefix exceed `4 * dot` by at most 4, and
+    // a lower bound that ignored them would overshoot the answer for targets landing just past
+    // dot 323. From there each step adds at least 4 clocks, so this converges in at most two.
+    //
+    // Still a walk rather than a closed form, for the reason the closed form was rejected: the
+    // layout is two irregular dots in a 340-dot line, and a closed form would encode their
+    // positions a second time. `the_bounded_walk_matches_an_exhaustive_walk_from_zero` pins this
+    // against the original for every `HTIME` on both line lengths.
+    // Computed in u32 and clamped BEFORE the cast. `target` is `4 * htime + 14`, so it leaves
+    // `u16` once `htime` passes ~16380 — and `irq_h` is restored straight from a save state by
+    // `read_u16()` with no masking, which a `save_state` fuzz target reaches. Casting first would
+    // wrap such a target to a small number and send the walk back to scanning all 340 dots, per
+    // dot, 89,000 times a frame: exactly the pathology this function was rewritten to remove,
+    // reachable from untrusted input. It never produced a WRONG answer -- truncation only lowers
+    // the start, and a real match exists only for `htime <= 337` where nothing truncates -- but
+    // that is an argument a reader should not have to reconstruct.
+    let start = target.saturating_sub(4).div_ceil(4);
+    if start > DOTS_PER_LINE as u32 {
+        return u16::MAX;
+    }
+    let mut dot = start as u16;
     while dot <= DOTS_PER_LINE {
-        if clock >= target {
+        if clocks_before_dot(dot, short_line) >= target {
             return dot;
         }
-        clock += dot_clocks(dot, short_line);
         dot += 1;
     }
     u16::MAX
+}
+
+/// Master clocks elapsed on this line before `dot` begins — the prefix sum of [`dot_clocks`],
+/// closed-form so [`hirq_trigger_dot`] can probe a candidate without re-walking the line.
+const fn clocks_before_dot(dot: u16, short_line: bool) -> u32 {
+    let mut clocks = 4 * dot as u32;
+    if !short_line {
+        if dot > LONG_DOTS[0] {
+            clocks += 2;
+        }
+        if dot > LONG_DOTS[1] {
+            clocks += 2;
+        }
+    }
+    clocks
 }
 
 /// Master clocks dot `dot` lasts for: 4, except the two that are 6.
@@ -1058,8 +1095,11 @@ impl Ppu {
         // never reaches those values (ares' stored `(HTIME+1)<<2 + 10` clocks then exceeds the max
         // hcounter), so the IRQ simply never fires for such HTIME — suppress rather than wrap into
         // the next line, which would be a spurious match hardware/ares never produce.
-        let h_target = hirq_trigger_dot(self.irq_h, self.is_short_scanline());
         let h_match = if self.irq_enable_h {
+            // Computed HERE rather than above the branch: the V-only arm never reads it, and this
+            // runs once per dot, so hoisting it cost the whole computation on every dot of every
+            // frame for every ROM that does not use an H-IRQ at all.
+            let h_target = hirq_trigger_dot(self.irq_h, self.is_short_scanline());
             // Bounded by THIS line's dot count, not the constant: the long line has a dot 340 that
             // a normal line does not, so an `HTIME` landing there is a real match on that line and
             // a suppressed one everywhere else.
@@ -1721,6 +1761,68 @@ mod tests {
     /// golden, every raster test and every H-IRQ a game arms in the visible window must be
     /// untouched. Above it the six-clock dots have displaced the boundaries and the old constant
     /// fired late.
+    /// The bounded walk equals an exhaustive walk from dot zero, for every `HTIME` on both line
+    /// lengths.
+    ///
+    /// This is the whole safety argument for the optimisation. The original implementation walked
+    /// from dot 0 on every call — correct, and ~30 million iterations a frame, which halved
+    /// headless throughput and tripped the frame-time gate. The replacement starts from a lower
+    /// bound instead; that is only sound if it never overshoots, and the interesting case is a
+    /// target landing just past dot 323, where the two 6-clock dots make the prefix exceed
+    /// `4 * dot`. A lower bound of `ceil(target / 4)` gets that case WRONG, which is why the
+    /// bound subtracts the four clocks those dots can contribute.
+    ///
+    /// The reference below is the original function verbatim, so this test compares the change
+    /// against what it replaced rather than against my belief about what it replaced.
+    #[test]
+    fn the_bounded_walk_matches_an_exhaustive_walk_from_zero() {
+        const fn walked_from_zero(htime: u16, short_line: bool) -> u16 {
+            let target = hirq_match_clock(htime);
+            let mut dot = 0u16;
+            let mut clock = 0u32;
+            while dot <= DOTS_PER_LINE {
+                if clock >= target {
+                    return dot;
+                }
+                clock += dot_clocks(dot, short_line);
+                dot += 1;
+            }
+            u16::MAX
+        }
+
+        // The FULL `u16` domain, not a plausible-looking prefix. The first version of this test
+        // stopped at 1023, which is above every `HTIME` hardware can produce and below every one
+        // that overflows the lower-bound arithmetic — so it could not have caught the truncation a
+        // reviewer spotted in that arithmetic. `irq_h` comes back from a save state unmasked, so
+        // "no ROM can set that" is not a bound this function gets to assume.
+        for short_line in [false, true] {
+            for htime in 0..=u16::MAX {
+                assert_eq!(
+                    hirq_trigger_dot(htime, short_line),
+                    walked_from_zero(htime, short_line),
+                    "HTIME {htime}, short_line {short_line}"
+                );
+            }
+        }
+    }
+
+    /// `clocks_before_dot` is the prefix sum of `dot_clocks`, and the bounded walk probes with it
+    /// rather than accumulating — so the two have to agree at every dot.
+    #[test]
+    fn the_closed_form_prefix_matches_accumulating_dot_clocks() {
+        for short_line in [false, true] {
+            let mut acc = 0u32;
+            for dot in 0..=DOTS_PER_LINE {
+                assert_eq!(
+                    clocks_before_dot(dot, short_line),
+                    acc,
+                    "dot {dot}, short_line {short_line}"
+                );
+                acc += dot_clocks(dot, short_line);
+            }
+        }
+    }
+
     #[test]
     fn the_h_irq_dot_is_unchanged_below_the_long_dots_and_moves_above_them() {
         // Everything that can land before dot 323 keeps the old answer exactly.

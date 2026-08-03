@@ -61,6 +61,34 @@ fi
 # See note 1 above. Exported, not passed per-command, because cargo-fuzz re-execs the target.
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}"
 
+# The target triple, passed EXPLICITLY, and this is note 4 -- learned the same way as the others.
+#
+# `cargo fuzz` defaults `--target` to the host triple **the cargo-fuzz binary itself was built
+# for**, not the one the toolchain targets. CI installs cargo-fuzz through `taiki-e/install-action`,
+# which ships a statically linked musl build -- so the default became
+# `x86_64-unknown-linux-musl` on a gnu runner, and every target failed to build with
+#
+#     error: sanitizer is incompatible with statically linked libc, ...
+#     error[E0463]: can't find crate for `core` (the musl target may not be installed)
+#
+# `run.sh` reported all 14 as FINDING, because a build failure is a non-zero exit like a crash is.
+# That is the note-1 failure mode wearing a different hat: a campaign claiming fourteen findings
+# and holding none. The tell is the same -- every target "finds" something within a second or two,
+# and `fuzz/artifacts/` is empty.
+#
+# It never showed up locally because a `cargo install`ed cargo-fuzz is a gnu build whose default
+# is already right. Asking rustc for the host is what makes the two environments agree.
+# `rustup run nightly rustc`, not `rustc +nightly`: the `+toolchain` form is parsed by rustup's
+# shim, not by rustc itself, so it fails wherever `rustc` on PATH is a real binary rather than the
+# shim -- a distro toolchain, or a container that installed rustc without the wrapper. This script
+# already requires rustup (it checks `rustup toolchain list` above), so `rustup run` costs nothing
+# and cannot be fooled by what `rustc` happens to resolve to.
+HOST_TRIPLE="${FUZZ_TARGET_TRIPLE:-$(rustup run nightly rustc -vV | awk '/^host:/ { print $2 }')}"
+if [ -z "$HOST_TRIPLE" ]; then
+  echo "error: could not determine the host triple from 'rustup run nightly rustc -vV'" >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Seeding
 # ---------------------------------------------------------------------------
@@ -144,7 +172,11 @@ for t in "${TARGETS[@]}"; do
 
   log="$HERE/target/$t.campaign.log"
   mkdir -p "$HERE/target"
-  if (cd "$REPO" && cargo +nightly fuzz run "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
+  # `rustup run nightly cargo`, for the reason spelled out at the HOST_TRIPLE assignment above:
+  # the `+toolchain` form is rustup's shim, not cargo's. Leaving this line as `cargo +nightly`
+  # while arguing against exactly that a hundred lines up was an inconsistency a reviewer had to
+  # point out.
+  if (cd "$REPO" && rustup run nightly cargo fuzz run --target "$HOST_TRIPLE" "$t" "$HERE/corpus/$t" -- "${args[@]}") >"$log" 2>&1; then
     echo "clean   $(grep -oE 'cov: [0-9]+ ft: [0-9]+' "$log" | tail -1)"
   else
     echo "FINDING -- see $log and fuzz/artifacts/$t/"

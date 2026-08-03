@@ -77,6 +77,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The frame-time gate has been red since `2026-08-01`, and it was right: headless frame production
+  had halved.** `check_hv_irq` runs once per dot — some 89,000 times a frame — and
+  `fix(ppu): derive the H-IRQ dot from the clock` (#300) had it walk the scanline from dot 0 on
+  every call to find the comparator's dot, up to 341 steps, for roughly **30 million iterations a
+  frame**. Measured on a dev machine: **6.83 ms/frame before that commit, 13.31 ms after**, against
+  a 16.64 ms NTSC deadline. `git bisect run` over the 22-commit window named it exactly.
+
+  Two changes, both value-preserving. The walk now starts from a lower bound rather than dot 0 —
+  every dot is at least 4 clocks, so the answer cannot be below `ceil((target - 4) / 4)`, and from
+  there it converges in at most two steps. The `- 4` matters: a bound of `ceil(target / 4)`
+  *overshoots* for targets landing just past dot 323, where the two 6-clock dots make the prefix
+  exceed `4 * dot`. And the target is computed inside the `irq_enable_h` branch instead of above it,
+  because the V-only arm never reads it — so a ROM that uses no H-IRQ now pays nothing at all.
+
+  **14.34 ms → 7.03 ms on current `main`, a 51% reduction**, and the gate passes. Two corrections
+  to an earlier draft of this entry, both caught in review: 47% was Criterion's own
+  change-against-its-saved-baseline, a different comparison than the one the sentence was making;
+  and 7.03 ms is **3% above** the 6.83 ms measured before `#300`, not "back to" it — the remaining
+  gap is the other commits that landed in the same window. Safety is an exhaustive test (`the_bounded_walk_matches_an_exhaustive_walk_from_zero`)
+  comparing against the **original function verbatim** for every `HTIME` on both line lengths —
+  the change is compared with what it replaced, not with a belief about what it replaced. Battery
+  56/56, framebuffer goldens unmoved, 68 workspace suites green.
+
+- **The fuzzing infrastructure had never actually run a campaign.** `Fuzz Campaign` is skipped on
+  every push and pull request and runs only on `security.yml`'s weekly cron, so the `2026-08-03`
+  scheduled run was its first real execution — and all **14 targets reported a FINDING within about
+  a second each**, with `fuzz/artifacts/` empty.
+
+  That uniformity is the tell, and `fuzz/run.sh`'s own header already names the failure mode for a
+  different cause: *"A campaign that reports 14 findings and has actually found none is worse than
+  one that reports nothing."* The cause here is that `cargo fuzz` defaults `--target` to the triple
+  **the cargo-fuzz binary itself was built for**. CI installs it via `taiki-e/install-action`, which
+  ships a statically linked **musl** build, so on a gnu runner every target failed with
+  `sanitizer is incompatible with statically linked libc` and `can't find crate for core` — and
+  `run.sh` counts a non-zero exit as a finding, because a build failure and a crash look alike.
+
+  It never reproduced locally because a `cargo install`ed cargo-fuzz is a gnu build whose default is
+  already correct. `run.sh` now passes `--target` explicitly, taken from `rustup run nightly rustc -vV`
+  (not `rustc +nightly` — the `+toolchain` form is rustup's shim, not rustc's, so it fails wherever
+  `rustc` on PATH is a real binary), so both environments agree. Verified by running a real campaign: `rom_header` clean at
+  `cov: 759 ft: 978`, where before it exited in under a second having built nothing.
+
 - **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**
   The NMI handler runs with whatever data bank the sandbox left — `$7E` — so `lda $4210` read a WRAM
   byte and the NMI was never acknowledged. Three hosts happened never to land an NMI where it
