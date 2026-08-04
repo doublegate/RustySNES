@@ -405,15 +405,26 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   sibling is *behind* on the CI half: its `fuzz/` is wired into no workflow at all, and its README
   claims a compile gate that does not exist there. See `fuzz/README.md` and
   `docs/testing-strategy.md` §Layer 7; and
-  (2) **netplay lobby/matchmaking + spectator/desync/liveness depth** — RustyNES's
-  `rustynes-netplay` signaling protocol grew a browse-and-join room directory, server-side
-  quick-match, delayed-stream spectators, a graded hysteresis-backed desync verdict, and
-  peer-liveness RTT timeouts; `rustysnes-netplay` has none of this (confirmed: no
-  `SignalMessage`/`ListRooms`/`QuickMatch`/`delay_frames`/`DesyncStatus`/`PeerLink` equivalents),
-  so the original `v1.5.0`-era "netplay already at parity" assessment is now stale against
-  RustyNES's deepened baseline. Neither is urgent (RustySNES's existing netplay is functional at
-  its own, narrower scope, and no untrusted-input crash has ever been found), so neither is
-  silently folded into an already-closed rung — see `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-15
+  (2) **netplay lobby/matchmaking + spectator/desync/liveness depth** — **the client-side half is
+  CLOSED in `v1.27.0 "Tether"`; the signaling half is out of scope by decision, not by omission.**
+  RustyNES's `rustynes-netplay` signaling protocol grew a browse-and-join room directory,
+  server-side quick-match, delayed-stream spectators, a graded hysteresis-backed desync verdict,
+  and peer-liveness RTT timeouts. When this row was written `rustysnes-netplay` had none of it.
+  Three of the six symbols it names now exist: `DesyncStatus` (graded, sticky, three-consecutive
+  threshold, keeping the remote framebuffer hash so a mismatch separates a *timing* divergence from
+  a *state* one), `PeerLink` (`Live`/`Interrupted`/`TimedOut` behind a `Transport` decorator with an
+  injected clock, so ADR 0004's determinism contract is untouched), and `delay_frames` (a
+  presentation-only reveal hold on a `SpectatorSession` that never predicts, never rolls back, and
+  never sends — so it cannot desync). The other three — `SignalMessage`, `ListRooms`, `QuickMatch` —
+  are the **server** side, and `v1.27.0` was scoped client-side-only on an explicit decision: a
+  signaling server is a hosted service with its own operational surface, not an emulator feature.
+  `MAX_PLAYERS` stays 2 for the same reason the mesh transport was not ported — it is built for the
+  NES Four Score, and core multitap exists here but wiring it into netplay is separate scope.
+  So the `v1.5.0`-era "netplay already at parity" assessment was correctly retired, and what
+  replaced it is a narrower claim that is now true. The remaining signaling gap is not urgent
+  (RustySNES's netplay is functional at its own scope, and no untrusted-input crash has ever been
+  found) and is not silently folded into an already-closed rung — see
+  `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-07-15
   log row for the full disposition, including three smaller items (a self-contained ROM Info
   debugger panel judged a small catch-up — **closed in `v1.20.0 "Aperture"`**, as part of that
   rung's own separate UI/UX-parity audit against RustyNES's frontend, not this lockstep check
@@ -421,6 +432,28 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   hardened against the same OOM-DoS class RustyNES's fuzzing just found, so already covered; and a
   Zapper aperture-hardening technique that doesn't map onto RustySNES's own, architecturally
   different geometric Super Scope hit-detection model, so not directly applicable).
+- **Flagged by the 2026-08-03 lockstep re-check — a provenance / licensing / attribution audit.**
+  RustyNES cut `v2.2.5 "Colophon"` (zero emulation-core changes) to correct in-source comments that
+  described independently-implemented, publicly-documented hardware behaviour as "ports of"
+  **copyleft** emulators, to rewrite a thin `NOTICE` into a real disclosure of behavioural-oracle
+  use and incorporated permissive components, and to add a provenance document including an
+  AI-assistance disclosure. **RustySNES's own surface was measured, not assumed:** **23** in-source
+  comments across the shipped crates claim a port or adaptation naming a reference emulator. Most
+  read "Clean-room port of ares (ISC, vendor-ok)" and cite the exact upstream file, which is the
+  benign shape — ares is ISC. **Two name `bsnes`, which is GPLv3** (`rustysnes-core/src/cheat.rs:4`
+  and the CPU's direct-page arithmetic). Separately `NOTICE` is **five lines** and discloses nothing
+  concrete: no oracle disclosure, no attribution for the **vendored `rcheevos`** tree (its own
+  `LICENSE` *is* present in-tree, so this is an aggregation gap rather than a missing licence), no
+  font or test-ROM attribution, and no AI-assistance disclosure.
+  **This is a maintainer go/no-go, and deliberately not scoped here.** Whether a given comment is
+  *inaccurate* — the behaviour implemented from fullsnes/anomie/datasheets with the emulator used
+  only as an oracle, which is what this project does everywhere else and documents as its method —
+  or *accurate*, and therefore a licensing question, cannot be settled by grepping the comment. The
+  check establishes only the surface. The `ref-proj/` trees are **gitignored study clones and are
+  not distributed**, which bounds the question to the comments and to whatever they describe.
+  **Zero emulation-core risk either way**: nothing here changes a value the engine computes, so it
+  can be taken up at any time without touching an accuracy result. See
+  `to-dos/LOCKSTEP-CHECKLIST.md`'s 2026-08-03 log row for the recommended shape if it is taken up.
 - **Further beyond — the fractional-timebase refactor (`docs/adr/0002`).** Assessed in `v1.1.0`
   and found **not currently warranted** — every named accuracy residual is answerable within the
   existing whole-master-clock-tick model (`docs/audit/fractional-timebase-go-no-go-2026-07-11.md`).
@@ -433,9 +466,12 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 
 AccuracySNES (`tests/roms/AccuracySNES/`) closed ticket **T-04** — the monolithic all-in-one
 oracle ROM that no publicly available SNES ROM provided, so we wrote one. The battery currently
-stands at **332 tests, 100.00% on-cart pass**, cross-validated against Mesen2, snes9x, and (as of
-`v1.21.0`) a headless MesenCE. Coverage is **344 of 443** enumerated assertions — 291 on-cart + 53
-rendered scenes (`docs/accuracysnes-coverage.md`). The tickets below carry the rest of the enumeration in
+stands at **346 tests, 100.00% on-cart pass**, cross-validated against **three** independent
+references — snes9x, Mesen2, and (as of `v1.29.0`) a headless ares host, with MesenCE additionally
+serving as the per-dot compositor's exact-frame oracle. Coverage is **361 of 443** enumerated
+assertions — 304 on-cart + 55 rendered scenes + 2 host-side, three tiers kept apart on purpose and
+never summed into a single claim (`docs/accuracysnes-coverage.md`, regenerated with the ROM so it
+cannot drift — every figure quoted here by hand can, and this one had). The tickets below carry the rest of the enumeration in
 `docs/accuracysnes-research-dossier.md` §5. Full rationale, blocker analysis, and the ordering
 constraints live in **`docs/accuracysnes-plan.md`**; this list is the citable ID index.
 
