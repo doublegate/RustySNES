@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.30.0] "Threshold" - 2026-08-03
+
 ### Added
 
 - **`v1.30.0` mobile store-readiness: the App Store §4.7 self-audit, a release build path, and a
@@ -23,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Super Scope" picker label), where the supplement reads clean **because it never looked outside
   the mobile shells**. Both files now say so at the top.
 
-  **The mobile-shell supplement** (`docs/app-store-4-7-self-audit.md`) is scoped to the two shells It passes on all five criteria, and the strongest evidence is capability rather
+  **The mobile-shell supplement** (`docs/app-store-4-7-self-audit.md`) is scoped to
+  `android/app/src/main` and `ios/RustySNES` and nothing else. Within that scope it passes on all
+  five criteria, and the strongest evidence is capability rather
   than intent: **Android declares no permissions at all — not even `INTERNET`** — and iOS has no
   networking code, so neither shell *can* obtain game software. Every user-visible string in both
   shells was enumerated; the complete set is `RustySNES`, `Open ROM`, `Save State`, `Load State`. Two
@@ -53,34 +57,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remains genuinely outstanding is stated as such — distribution signing, TestFlight, and Play's Data
   Safety form, all maintainer-blocked. **Mobile Phase 6 stays NOT GREENLIT**; passing this audit
   removes a prerequisite from that gate's checklist, it does not move the gate.
-
-- **`A6.15` — every 65C816 opcode is defined, and only `STP` hangs. Coverage 361 of 443.** The row
-  executes each of the 241 straight-line opcodes in a WRAM sandbox and counts three outcomes against
-  the length **Table 5-4 of the WDC W65C816S datasheet** documents: returned where it should,
-  returned late, or did not return.
-
-  **The sandbox terminator cannot be a return.** `TXS` and `TCS` move the stack pointer — with
-  `x = 1` a `TXS` puts it in page zero — so the return address is no longer where an `RTS` would pop
-  it from. Control comes back through a `JMP`, and because a `JMP` is three bytes, the addresses are
-  chosen so its **own operand bytes are harmless one-byte instructions**: `$AAAA` (`TAX`) for the
-  clean exit and `$B8B8` (`CLV`) for the overshoot one. An opcode that consumes one byte too many
-  therefore executes a register transfer and walks into a `NOP` fill, instead of executing half an
-  address.
-
-  **The watchdog takes two strikes.** `runtime.s` already carried an NMI trampoline with a settable
-  vector; one strike would be wrong, because NMI fires once per vblank and across 241 sandbox runs
-  it will eventually land inside a *healthy* one.
-
-  **Four opcodes are dangerous even when correct, and the preamble handles each rather than
-  excluding it:** `MVN`/`MVP` move `A + 1` bytes, so `A = 0`; `XCE` flips to emulation mode only if
-  `C` is set, so `CLC` first makes it a no-op; `TXS`/`TCS` are why the exits restore `SP` from WRAM;
-  `SED` and `PLP` are why they re-establish `m`, `x`, `d` and `c` rather than trusting what came back.
-
-  **Verified by injection, twice.** `WDM` made a three-byte instruction produced exactly one LATE
-  with first-bad `$42`; `TRB dp` made to jam produced exactly one NO-RETURN with first-bad `$14`,
-  the watchdog rescuing the battery. Picking that second injection is not free — `SED` and `CLC`
-  both hang the cart *before* `A6.15` runs, because the runtime and earlier Group A rows execute
-  them. `TRB` is executed nowhere else on the cart.
 
 ### Fixed
 
@@ -126,277 +102,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rustc` on PATH is a real binary), so both environments agree. Verified by running a real campaign: `rom_header` clean at
   `cov: 759 ft: 978`, where before it exited in under a second having built nothing.
 
-- **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**
-  The NMI handler runs with whatever data bank the sandbox left — `$7E` — so `lda $4210` read a WRAM
-  byte and the NMI was never acknowledged. Three hosts happened never to land an NMI where it
-  showed; **ares did**, and the row reported `PLA` (`$68`) overshooting on ares alone, stably, with
-  every other opcode agreeing.
-
-  That reads exactly like a reference bug, and it was ours. The chain that settled it is worth
-  recording: a diagnostic that replaced the terminator with `INX` fill showed **both** ares and
-  RustySNES resuming at the correct offset, so `PLA`'s length was never in question; sweeping only
-  `$68` passed on ares, so the failure needed the full sweep's elapsed time; and disarming the
-  watchdog made all four hosts agree. Long addressing (`lda f:$004210`) is DBR-independent and fixes
-  it. The handler now also preserves `A` — `RTI` restores `P` and `PC` but not the accumulator, and
-  an interrupt that silently rewrites `A` is not transparent to what it interrupted.
-
-  With the fix the injections are exact where they had been approximate: the jam injection reported
-  two stuck opcodes and 63 clean ones before, and reports one and 240 now.
-
-- **`E2.10` — the full 256-opcode SPC700 cycle sweep.**
-  The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
-  and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies
-  no expected values; it reads back three bytes — opcodes measured, opcodes disagreeing, and the
-  first one that did.
-
-  **How one opcode is timed.** `T2OUT` steps once every 16 opcode cycles, far too coarse for a
-  single instruction, so the sweep never times one. It times a block of six copies, sixteen times
-  over, against the same block built from `NOP`. Everything around the copies — a fixed four-byte
-  prologue, a fixed five-byte epilogue, the `CALL`, the register reset, the poll — is identical in
-  every arm and cancels in the difference, which leaves **six ticks per cycle** against a
-  quantisation of ±1 on each side.
-
-  **Branches are measured taken.** A relative branch with a displacement of *zero* lands on the
-  following instruction, which is where a not-taken branch would have gone anyway — so a block of
-  six runs straight through whichever way each one goes, and the arm can arrange the taken path.
-  The prologue that arranges it is two two-cycle immediates whatever flag it has to set, so
-  choosing one costs nothing that could leak into a difference.
-
-  **The table is built from rules, and the build fails if the rules do not tile the map.** fullsnes
-  documents the opcode map *as* rules (`OR/AND/EOR/CMP/ADC/SBC` share one operand column, the shift
-  and increment group another, the bit ops a third), and `spc_opcodes.rs` follows them; a slot filled
-  twice or left empty is a build failure, not a shipped hole. The operand kind is **recorded** at
-  construction rather than derived from the opcode byte afterwards — the first draft derived it from
-  the low nibble, which is nearly right and hides at least four traps, one of which gave
-  `MOV [aa+X],A` a pointer read from uninitialised memory, which is zero, which is the driver's own
-  variables.
-
-  **Twenty-five opcodes are excluded, by name and with reasons.** The absolute jumps and calls (one
-  encoding cannot make six copies at six addresses each fall into the next), the vectored calls
-  (`TCALL`, `PCALL`, `BRK` — their vectors are in the IPL ROM every Group E program keeps mapped),
-  the returns (they pop an address the block never pushed), and `SLEEP`/`STOP`, for which fullsnes
-  itself gives the cycle count as `?`. For those the question has no answer. The count of what *was*
-  measured is asserted on-cart at 231, so a sweep covering a different set fails rather than quietly
-  reporting no disagreements.
-
-  **Verified by injection, twice.** Adding one idle cycle to `XCN` produced exactly one disagreement,
-  first-bad `$9F` — the opcode broken. Removing one idle cycle from the taken relative branch
-  produced exactly nine, first-bad `$10` — the eight conditional branches plus `BRA`, which is also
-  the proof that the taken-path prologues really do take the branch in all eight conditions.
-
-  Two things had to be measured rather than reasoned about. The results page was first placed at
-  `$0900` and the uploaded image reached `$0948`, so the sweep overwrote its own driver as it
-  recorded — a build-time assertion now rejects that layout. And the shared bounded APU wait is a
-  fraction of a frame, right for every other Group E program and far too short for this one, which
-  runs about **42 frames**: the row reported SKIP while the SPC was working correctly and had
-  already reached the right answer in RAM.
-
-
-### Fixed
-
-- **`E3.06` polls BOTH timers; a single end-of-interval read measured a phase, not a count.** The row
-  compares timer 2's rate against timer 0's over one interval. Timer 2 was already accumulated across
-  polls — that was the earlier fix for `TnOUT`'s four-bit ceiling — but timer 0 was still read
-  **exactly once**, at the end, on the reasoning that a handful of ticks is nowhere near its own wrap.
-  True about magnitude, and silent about phase: one read samples whatever sub-tick phase the previous
-  test left the timer in. `$F1`'s enable-raise resets a timer's stage-2 and stage-3 state (`E3.02`)
-  but nothing resets stage 0, so the reading was reproducible only while nothing before it disturbed
-  that phase.
-
-  It is not a hypothetical. Authoring a row that drives timer 2 hard (an SPC700 cycle-cost instrument)
-  broke `E3.06` **on the battery's second run and not its first** — the residue crosses the run
-  boundary. The band was not the problem and was not widened to admit it: **the row is right and its
-  instrument was one read short.**
-
-  Both counters are now accumulated in the same poll loop, over 32 passes rather than 24, so neither
-  side carries a phase. The comparison is quantisation-honest for the first time: each accumulated
-  count is exact to ±1, so `8 x T0` carries ±8 and the difference ±9 — the previous ±6 was tighter
-  than its own instrument could support, and passed only because the two phases happened to correlate.
-  The band is now ±10 and still discriminating by a wide margin: a core running every timer from the
-  8 kHz stage lands some ninety ticks out. Measured across hosts, the same interval yields T0 = 12-13
-  and T2 = 99 — the one-tick spread in T0 is precisely the sensitivity that ±6 could not absorb.
-
-- **`C11.12` is unauthorable, verified two ways — there is nothing to assert.** Checked rather than
-  assumed: the row's subject ("Mode 7 scroll offset latch timing") appears exactly **twice** in
-  `ref-docs/`, both times as a game-compatibility table row naming NHL '94, with **no behavioural
-  statement anywhere** — no value, no timing, no mechanism. And no reference models a distinct
-  timing: ares reads the register live in `sfc/ppu/mode7.cpp`
-  (`s32 hoffset = (i13)self.io.hoffsetMode7;`), with no per-scanline latch for a test to catch a core
-  getting wrong.
-
-  Writing a row would mean inventing an expectation and checking our own arithmetic against itself —
-  the `E9.11` failure mode. The genuinely testable part of `$210D`'s dual-latch behaviour (it updates
-  `M7HOFS` via `M7_old` *and* `BG1HOFS` via `BG_old`, with different formulas) is **already covered**
-  by `C4.01` and `C4.04`/`C4.05`, all blessed scenes; `C11.12` adds only the word *timing*, which is
-  the part nothing defines.
-
-  It belongs with `C13.*` and `F1.22`: enumerated, uncoverable, scored as such rather than chased.
-
-- **`inidisp_forgot_to_force_blank` is NOT a RustySNES defect, and the previous entry's account of
-  MesenCE's model was incomplete.** It was recorded as "the last per-dot framebuffer gap", to be
-  closed by tracking the CGRAM redirect target "in the fetch stage, per layer, on non-zero colour
-  indices". Reading the third reference changes the conclusion.
-
-  **The incomplete claim.** MesenCE was described as updating `InternalCgramAddress` only inside
-  `GetRgbColor`, "so a transparent pixel leaves the previous opaque column's value standing". It does
-  not. `SnesPpu::RenderBgColor()` runs **after** every layer render in a span and sets
-  `InternalCgramAddress = 0` for every backdrop column it fills, ascending. So MesenCE zeroes on
-  backdrop too — and what survives a span is decided by **pass ordering across the whole span**, not
-  by the last column drawn. That is an artefact of a span-based renderer, not a per-dot process.
-
-  **ares settles it.** `PPU::DAC::paletteColor` sets `latch.cgramAddress = palette` unconditionally,
-  called during per-dot priority resolution in the DAC — including `paletteColor(0)` for the
-  transparent case (`dac.cpp:71`). That is RustySNES's model exactly: one assignment per dot, from
-  the composited pixel, backdrop giving zero.
-
-  So RustySNES and ares implement the same per-dot model and MesenCE differs for architectural
-  reasons. The `7fc6` in the golden encodes **MesenCE's renderer**, not hardware. The row is
-  reclassified from a per-dot gap to a reference disagreement, and the engine is not changed to match
-  a pass-ordering artefact.
-
-  Two corroborations: `C3.12` ("CGRAM taken in render"), the scored cart row that asserts the
-  redirect target directly, **passes on Mesen2 and on RustySNES** — the two agree on the assertion
-  and differ only on this homebrew framebuffer hash. And `C3.12`'s own provenance is a per-dot
-  statement — "a CGRAM access during active display uses the colour the PPU **is drawing**" — which
-  the per-dot model implements directly and a span-ordering model only approximates.
-
-  This is the shape the Mode-5 first-pixel claim had, and the lesson from that retraction applied:
-  the third reference was read **before** publishing, not after.
-
-- **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
-  different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an
-  interlace scene produced identical results, so the standing note that "Mesen2 alternates between
-  both field parities run-to-run on one build" no longer reproduces — that was almost certainly the
-  `emu.setInput` defect fixed earlier, and "run any field-dependent capture twice per host" can be
-  retired as the *reason* interlace is blocked.
-
-  The actual blocker is that the two hosts emit different **widths** for the same interlace scene:
-  snes9x `256x224`, Mesen2 `512x478`. Hi-res worked because both emitted 512 wide and differed only
-  in height, which `HiResEven` absorbs by deriving the row step from the observed height. Here no
-  single `(xstep, ystep)` pair describes both reductions, so `extract` as designed — one declared
-  rule per scene, every host applying the same reduction — is insufficient.
-
-  `docs/adr/0013` records the three options and argues against the tempting one: a generic
-  "downsample whatever you get to 256x224" rule would subsume `HiResEven` but give up the
-  declared-not-inferred property, and would then silently accept a 256-wide frame for a scene that
-  must be 512.
-
-- **`C10.04` attempted and withdrawn: it is blocked by the same exclusion that unblocked `C5.15`.**
-  A Mode 5 scene with `MOSAIC = $01` was written against the control the working rules require — the
-  same canvas with mosaic off — and hashed **identically to it on both references**
-  (`0xf7ed8ab9ecd95d85` either way).
-
-  The reason is structural. A 2x1 mosaic pair merges an *even* column with its *odd* neighbour, and
-  `HiResEven` samples only the even columns, so the merge is invisible to the hash **by
-  construction**. `C10.04` therefore sits with `C5.06`/`C5.07`: its subject lives in the mainscreen
-  half, which the references diverge on by 33-35% pairwise and which rule 4 forbids blessing. No
-  variant of `HiResEven` can help — any rule including the odd columns inherits the disagreement.
-
-  Recorded rather than silently dropped, because the *attempt* is the finding: this is the
-  unshowable-scene trap in its documented form, and **the control scene is the only thing that
-  distinguishes "the references agree" from "nothing happened"**. Its doc comment said in advance
-  what an equal hash would mean, which is why the trap cost one run instead of a blessed golden that
-  proved nothing.
-
-- **`C5.15` is now blessed coverage: excluding the one undefined pixel made the rest of Mode 5
-  agree.** The retraction below establishes that the first hi-res pixel of a line is a genuine
-  reference disagreement on a value ares flags as *not confirmed on hardware*. Hashing it would have
-  made **every** hi-res scene permanently unblessable over one pixel.
-
-  `HiResEven` now excludes column 0, so the sample is 255x224 rather than 256x224 — a deliberate
-  part of the contract, recorded in the golden file's own header and in the variant's doc. With that
-  one column out, all three hosts agree bit-for-bit:
-
-  ```
-  snes9x     0xf7ed8ab9ecd95d85
-  Mesen2     0xf7ed8ab9ecd95d85
-  RustySNES  0xf7ed8ab9ecd95d85
-  ```
-
-  Rule 4 is satisfied, so the golden is blessed. **55 scenes match on both hosts, zero unblessed.**
-  Coverage `358 → 359 of 443`; `C5` drops to two uncovered rows (`C5.06`/`C5.07`, still blocked by
-  the mainscreen-column disagreement).
-
-- **RETRACTION: the Mode-5 first-pixel divergence is a 2-vs-2 reference disagreement, not a
-  RustySNES defect.** The entry below claims the two references agree bit-for-bit against RustySNES,
-  "this project's signature for a real defect". That was published from **two** references without
-  consulting the third, which is the exact mistake this project's own notes warn about.
-
-  Diffing the pixels rather than the hashes: the divergence is **one column** — column 0 of the
-  extracted sample, the first pixel of the 512-wide picture — on all 224 rows and nothing else. 224
-  differing pixels of 57,344. RustySNES `0x0000`, snes9x `0x0421` (the backdrop).
-
-  ares' `sfc/ppu/dac.cpp` settles it *against* the original conclusion: `scanline()` seeds
-  `math.above.colorEnable = false` under the comment *"the first hires pixel of each scanline is
-  transparent // note: exact value initializations are not confirmed on hardware"*, and `below()`
-  returns `(n15)0` — black — in that state. RustySNES does the same thing. The split is **RustySNES
-  + ares against snes9x + Mesen2**, on a value ares itself flags as unverified.
-
-  So there is **no defect to fix**, and `c5-mode5-hires-16px-tiles` is **not blessable** under
-  ADR 0013 rule 4 — it stays permanently unblessed as a variant set rather than looking like a
-  pending golden. `C5.15` does not become coverage this way; a hi-res scene avoiding column 0 would
-  make the rest of Mode 5 blessable, and that is the follow-up. The extraction infrastructure is
-  vindicated either way: two hosts with different geometries produced identical hashes for the other
-  57,120 pixels.
-
-- **Both scene hosts silently accepted an out-of-contract frame geometry.** The width tests were
-  lower bounds — `w < SCENE_W` in the libretro host, `#buf < …` in the Mesen2 script — which catch a
-  frame that is too *narrow* and miss one that is too **wide**. Too wide is the case that actually
-  happens: a hi-res frame arrives 512 across, both tests pass it, and each then hashes something
-  that is not the contract. The Lua script walks a 512-wide buffer with a stride of 256, hashing a
-  diagonal slice; the C host uses the real pitch and hashes the leftmost 256 columns. **A golden
-  blessed from either would be stable, reproducible and wrong.**
-
-  Both are exact now. Widening the scene region past 256×224 is real planned work, and it has to
-  start from a loud rejection rather than a silent wrong picture — which is what made this worth
-  finding before that work rather than during it.
-
-  The Mesen2 constant is **measured, not derived**: the first attempt computed
-  `SCENE_W * (SCENE_H + FIRST_ROW)` = 59,136, which is the size of the region *read* rather than of
-  the buffer *returned*, and rejected every frame. It is 256 × 239 — the whole output frame — and
-  the script now says so. All 54 scenes still match on both hosts.
-
-- **`F1.10` is now excluded from Mesen2's failing count as well as ares', on the same evidence.**
-  Adding `B2.07` made Mesen2's **PAL** verdict on that row flip between runs of a single build —
-  two runs of the same image gave `F1.03` alone, then `F1.03` + `F1.10`. That is the third
-  host/image combination to show it. The row samples `$4212` right at the vblank edge, so any test
-  added ahead of Group F moves the phase that decides it, and a gate that counts it fails on work
-  with nothing to do with controller ports.
-
-  `mesen_crossval.lua` now skips one index supplied through `ACCURACYSNES_SKIP_INDEX`, which
-  `crossval.sh` resolves **by ID** from `SOURCE_CATALOG.tsv` — the index moves whenever a test is
-  added ahead of it, which is exactly the circumstance that exposed the problem. The row is still
-  logged, just not counted, and the ares gate now shares the same resolved index instead of
-  computing its own. Three consecutive full cross-validation runs are stable.
-
-- **The APU ran 0.92% slow on PAL: its clock divisor was pinned to the NTSC master rate.**
-  `Bus::advance_master` converts master ticks to SMP base clocks through a fixed rational, and the
-  denominator was `715_909` — the NTSC master clock — in **both** regions. The APU runs from its own
-  24.576 MHz crystal, so its rate is the same on NTSC and PAL while the master clock's is not;
-  holding the whole *ratio* fixed therefore made the APU scale with the video clock. On PAL that is
-  `21_281_370 × 68352/715909 = 2_031_850` base Hz against hardware's `2_050_560`.
-
-  **Both references disagree with the old behaviour, from opposite directions.** ares
-  (`sfc/system/system.cpp`) region-sets `cpuFrequency` and never region-sets `apuFrequency` at all;
-  snes9x (`apu/apu.cpp`) carries two explicit ratios, `15664/328125` and `34176/709379`, which both
-  work out to an APU rate of exactly **1,025,280 Hz** and differ *only* in the master-clock
-  denominator — `709_379 × 30` is `21_281_370`, which is where the new constant comes from.
-
-  The divisor is now chosen from the PPU's region at the point of use rather than cached in `Clock`:
-  the accumulator is already serialized, and a second field agreeing with it is one more thing that
-  can disagree across a region change or a state restore.
-
-  **A stale doc comment had asserted the opposite** — `sync_region_from_cart` said "nothing else in
-  the core depends on which oscillator frequency a real console would use". The SPC accumulator is
-  exactly that one thing; the comment is corrected rather than left to mislead. `docs/scheduler.md`
-  §async-resync and `docs/apu.md` updated in the same change.
-
-  NTSC output is byte-identical. `the_apu_rate_is_region_independent` asserts the two divisors differ
-  by exactly the ratio of the two master clocks, observed through emitted DSP samples so it needs no
-  new counter; it fails when the region-blind behaviour is injected. The AccuracySNES battery and
-  both images still cross-validate three ways.
+## [1.29.0] "Triangulate" - 2026-08-02
 
 ### Added
+
+- **`A6.15` — every 65C816 opcode is defined, and only `STP` hangs. Coverage 361 of 443.** The row
+  executes each of the 241 straight-line opcodes in a WRAM sandbox and counts three outcomes against
+  the length **Table 5-4 of the WDC W65C816S datasheet** documents: returned where it should,
+  returned late, or did not return.
+
+  **The sandbox terminator cannot be a return.** `TXS` and `TCS` move the stack pointer — with
+  `x = 1` a `TXS` puts it in page zero — so the return address is no longer where an `RTS` would pop
+  it from. Control comes back through a `JMP`, and because a `JMP` is three bytes, the addresses are
+  chosen so its **own operand bytes are harmless one-byte instructions**: `$AAAA` (`TAX`) for the
+  clean exit and `$B8B8` (`CLV`) for the overshoot one. An opcode that consumes one byte too many
+  therefore executes a register transfer and walks into a `NOP` fill, instead of executing half an
+  address.
+
+  **The watchdog takes two strikes.** `runtime.s` already carried an NMI trampoline with a settable
+  vector; one strike would be wrong, because NMI fires once per vblank and across 241 sandbox runs
+  it will eventually land inside a *healthy* one.
+
+  **Four opcodes are dangerous even when correct, and the preamble handles each rather than
+  excluding it:** `MVN`/`MVP` move `A + 1` bytes, so `A = 0`; `XCE` flips to emulation mode only if
+  `C` is set, so `CLC` first makes it a no-op; `TXS`/`TCS` are why the exits restore `SP` from WRAM;
+  `SED` and `PLP` are why they re-establish `m`, `x`, `d` and `c` rather than trusting what came back.
+
+  **Verified by injection, twice.** `WDM` made a three-byte instruction produced exactly one LATE
+  with first-bad `$42`; `TRB dp` made to jam produced exactly one NO-RETURN with first-bad `$14`,
+  the watchdog rescuing the battery. Picking that second injection is not free — `SED` and `CLC`
+  both hang the cart *before* `A6.15` runs, because the runtime and earlier Group A rows execute
+  them. `TRB` is executed nowhere else on the cart.
 
 - **Per-scene capture extraction (`Scene::extract`), and the Mode-5 divergence it found on its first
   run.** Hi-res scenes were parked behind "widen the capture region"; measuring showed that framing
@@ -565,37 +301,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Coverage `351 → 352 of 443` (298 on-cart + 54 scenes); battery 339 tests, 100% on-cart; all three
   references agree.
-
-### Fixed
-
-- **`F1.10`'s ares verdict is not reproducible, and is now excluded from that gate by name.**
-  Adding `E9.09` — an APU row with nothing to do with controller ports — made ares' verdict on
-  `F1.10` flip run to run: `04` on eight runs of eight before, then `01` on two of five and `04` on
-  the other three, same binary and same image. The row samples `$4212` at the vblank edge, so the
-  cart's execution phase decides it and anything added ahead of Group F moves that phase.
-
-  This is the **fourth** instance of the same trap this cycle and the second on this exact row —
-  Mesen2's `F1.10` verdict flipped the other way when `E3.06` was rewritten. Two of three references
-  now demonstrate the row's cross-host verdict carries no information.
-
-  A count that includes it is a gate that flakes on unrelated work, so `ARES_KNOWN_FAILURES` drops
-  4 → 3 and `crossval.sh` resolves the excluded row through `SOURCE_CATALOG.tsv` **by ID at run
-  time**: the catalogue index moves whenever a test is added ahead of it, which is exactly what
-  exposed the problem. The count is reproducible across runs again (five for five). RustySNES passes
-  the row because of a deliberate fix and that stands; pinning its sampling point is the only thing
-  that would make a reference's verdict on it mean anything.
-
-- **CORRECTION: the battery covers 351 of 443 assertions, not 350.** The `E5.06` entry below says
-  coverage was "350 either way"; the regenerated `docs/accuracysnes-coverage.md` reads **297 on-cart
-  + 54 scene-only = 351**. `docs/STATUS.md` and `docs/accuracysnes-plan.md` are synced to the
-  generated figure, along with three other hand-maintained lines that had drifted behind this
-  cycle's work: the reference list (now **Mesen2, snes9x and ares**, with MesenCE named separately as
-  the compositor blueprint rather than as a cross-validation reference), Mesen2's known-failure
-  rationale (`F1.03` alone, and *why* — it clocks both ports out of one latch), and the scene tally
-  (54, on both scene hosts). The generated report is the authority precisely because these drift;
-  this is the periodic reconciliation, not a coverage change.
-
-### Added
 
 - **`E3.06` rewritten to poll and accumulate — and ares agrees with it exactly.** The row read
   `TnOUT` once at the end of the interval, and `TnOUT` is a four-bit read-and-clear counter, so the
@@ -800,36 +505,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the mask was already witnessed in aggregate — what this adds is a scene whose stated purpose is
   the mask, which is what makes the coverage claim mean something.
 
-- **The H-IRQ comparator moves into the clock domain (`T-06-A`), and nothing below the long dots
-  moves with it.** `HIRQ_TRIGGER_DELAY = 4` was a *dot-domain rounding* of ares'
-  `hcounter(10) == (HTIME+1)<<2` — exact only while every dot is four clocks, which stopped being
-  true when dots 323 and 327 became six. The match is now computed where it actually happens:
-  clock `4·HTIME + 14` (`hirq_match_clock`), mapped to the first dot boundary at or after it
-  (`hirq_trigger_dot`).
-
-  **Below the long dots the two agree exactly**, because `4·HTIME + 14` is never a multiple of 4 and
-  the next boundary is `HTIME + 4`. They diverge only for `HTIME` **321..=337**, where the six-clock
-  dots have displaced every later boundary — the old constant fired up to a whole dot late, and at
-  `HTIME = 336` suppressed an IRQ that does fire. `HTIME = 337` lands on dot 340's boundary, which
-  exists only on the long line, so it is honoured there and suppressed elsewhere.
-
-  This is the change the plan recorded as *"attempted and reverted because it moves
-  `hdmaen_latch_test_2`'s golden"*. It does not, this time: **no framebuffer golden moved**, the
-  undisbeliever suite passes unchanged, and cross-validation is byte-identical
-  (`snes9x: OK (14 known)`, `Mesen2: OK (2 known)`).
-
-  **`B4.16` is a weaker guard than its own doc claimed, and that is worth knowing.** Measured either
-  side of the change, *both* of its readings are unchanged — including the `HTIME = 330` one, whose
-  trigger dot moved 334 → 333. The CPU takes an IRQ at an instruction boundary, so the handler-entry
-  dot quantises to the spin loop's instruction length and a one-dot shift is absorbed. `B4.16` can
-  say "nothing regressed"; it cannot say "the change took effect". A unit test does that, sweeping
-  every `HTIME` and asserting equality with the old constant below the long dots and strict
-  inequality above them.
-
-  `LONG_DOTS` and the per-dot clock count also move to `rustysnes-ppu`, which owns the dot model and
-  now needs the same layout twice. `rustysnes-core`'s scheduler delegates to it rather than keeping
-  a second copy.
-
 - **AccuracySNES: the scene protocol publishes on a known field, and the interlace three-way split
   is down to a two-way one.** `run_scenes` now sets the scene ID only on frames whose `$213F` bit 7
   is set, so every sighting the host counts is the same field. `SCENE_FRAMES` grew 8 → 12: at half
@@ -893,6 +568,342 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back negative. *The interpolator, not the decoder, was supplying the sign.* The row now asserts
   **bipolarity** — a saturating decoder settles, and a settled decoder's readings carry one sign —
   and both saturating variants fail it.
+
+### Changed
+
+- **`crossval.sh`'s Mesen2 known-failure comment is keyed on rows, not catalogue indices, and its
+  `F1.10` attribution is corrected against a measurement.** The comment named `idx279 F1.03` and `idx286 F1.10`; in
+  the current catalogue those indices are `F1.01` and `F1.08`, because an index moves whenever a test
+  is added ahead of it. An index in a comment is a fact with a shelf life.
+
+  That comment also attributed Mesen2's `F1.10` failure to the port-2 limitation, while the snes9x
+  block a few lines above said Mesen2 *passes* `F1.10`. Both could not be true, and nobody had
+  measured it since the catalogue grew. `scripts/accuracysnes/mesen_failing_set_probe.lua` now does:
+  read at `R_DONE` (frame 482), the failing set is exactly **`F1.03` and `F1.10`**, identical across
+  four runs.
+
+  The two fail for **different** reasons, and lumping them under one rationale is what hid it.
+  `F1.03` genuinely clocks both ports out of one latch (`$4016` *and* `$4017`), so the port-2
+  limitation is real for it and only for it. `F1.10` reads `$4016` only; Mesen2 fails it for the same
+  reason snes9x and ares do — the automatic read modelled as starting at the vblank edge.
+
+  **So `F1.10` is 1-vs-3, with RustySNES passing alone**, and the snes9x block's "Mesen2 delays the
+  start and passes" is retracted. The row is Documented (fullsnes: the read starts ~dot 32.5–95.5 of
+  the first vblank line) and RustySNES passes it only because of a deliberate fix. A first-party
+  accuracy cart being right where three references are wrong is the point of having one — but 1-vs-3
+  on a scored row is stated rather than left to be mistaken for consensus.
+
+  One operational gotcha found on the way: **the Mesen2 runner can under-report under load.** One run
+  returned 1 where every other returned 2, with four other `dotnet` processes live. `--timeout=60` is
+  a wall-clock bound, so a loaded machine can cut the battery short and report a *smaller* failing
+  count — which reads as "things improved", the most dangerous direction for a gate to be wrong in.
+
+- **AccuracySNES: `E9.01` and `E9.02` stand down as SKIP on a menu restart.** `E9.02` steps the noise
+  LFSR by design and nothing can put it back: `FLG` bit 7 is the DSP's *soft* reset and does not
+  re-seed the shift register (checked against ares, which re-seeds only in `DSP::power`). A comment
+  in `voice_program` claimed the opposite and has been corrected. `E9.02` is registered last, both
+  rows use the same power-on gate `F1.07` uses for its unwritten `$4218`, and the harness's
+  restart-idempotence check moved from `first_run_passed - 1` to `- 3`.
+
+### Fixed
+
+- **The `A6.15` watchdog read `RDNMI` through `DBR`, and it cost a false accusation of a reference.**
+  The NMI handler runs with whatever data bank the sandbox left — `$7E` — so `lda $4210` read a WRAM
+  byte and the NMI was never acknowledged. Three hosts happened never to land an NMI where it
+  showed; **ares did**, and the row reported `PLA` (`$68`) overshooting on ares alone, stably, with
+  every other opcode agreeing.
+
+  That reads exactly like a reference bug, and it was ours. The chain that settled it is worth
+  recording: a diagnostic that replaced the terminator with `INX` fill showed **both** ares and
+  RustySNES resuming at the correct offset, so `PLA`'s length was never in question; sweeping only
+  `$68` passed on ares, so the failure needed the full sweep's elapsed time; and disarming the
+  watchdog made all four hosts agree. Long addressing (`lda f:$004210`) is DBR-independent and fixes
+  it. The handler now also preserves `A` — `RTI` restores `P` and `PC` but not the accumulator, and
+  an interrupt that silently rewrites `A` is not transparent to what it interrupted.
+
+  With the fix the injections are exact where they had been approximate: the jam injection reported
+  two stuck opcodes and 63 clean ones before, and reports one and 240 now.
+
+- **`E2.10` — the full 256-opcode SPC700 cycle sweep.**
+  The cart measures how long every opcode the SPC700 can execute in a straight line actually takes,
+  and compares it on-cart against the cycle count **fullsnes** documents for it. The host supplies
+  no expected values; it reads back three bytes — opcodes measured, opcodes disagreeing, and the
+  first one that did.
+
+  **How one opcode is timed.** `T2OUT` steps once every 16 opcode cycles, far too coarse for a
+  single instruction, so the sweep never times one. It times a block of six copies, sixteen times
+  over, against the same block built from `NOP`. Everything around the copies — a fixed four-byte
+  prologue, a fixed five-byte epilogue, the `CALL`, the register reset, the poll — is identical in
+  every arm and cancels in the difference, which leaves **six ticks per cycle** against a
+  quantisation of ±1 on each side.
+
+  **Branches are measured taken.** A relative branch with a displacement of *zero* lands on the
+  following instruction, which is where a not-taken branch would have gone anyway — so a block of
+  six runs straight through whichever way each one goes, and the arm can arrange the taken path.
+  The prologue that arranges it is two two-cycle immediates whatever flag it has to set, so
+  choosing one costs nothing that could leak into a difference.
+
+  **The table is built from rules, and the build fails if the rules do not tile the map.** fullsnes
+  documents the opcode map *as* rules (`OR/AND/EOR/CMP/ADC/SBC` share one operand column, the shift
+  and increment group another, the bit ops a third), and `spc_opcodes.rs` follows them; a slot filled
+  twice or left empty is a build failure, not a shipped hole. The operand kind is **recorded** at
+  construction rather than derived from the opcode byte afterwards — the first draft derived it from
+  the low nibble, which is nearly right and hides at least four traps, one of which gave
+  `MOV [aa+X],A` a pointer read from uninitialised memory, which is zero, which is the driver's own
+  variables.
+
+  **Twenty-five opcodes are excluded, by name and with reasons.** The absolute jumps and calls (one
+  encoding cannot make six copies at six addresses each fall into the next), the vectored calls
+  (`TCALL`, `PCALL`, `BRK` — their vectors are in the IPL ROM every Group E program keeps mapped),
+  the returns (they pop an address the block never pushed), and `SLEEP`/`STOP`, for which fullsnes
+  itself gives the cycle count as `?`. For those the question has no answer. The count of what *was*
+  measured is asserted on-cart at 231, so a sweep covering a different set fails rather than quietly
+  reporting no disagreements.
+
+  **Verified by injection, twice.** Adding one idle cycle to `XCN` produced exactly one disagreement,
+  first-bad `$9F` — the opcode broken. Removing one idle cycle from the taken relative branch
+  produced exactly nine, first-bad `$10` — the eight conditional branches plus `BRA`, which is also
+  the proof that the taken-path prologues really do take the branch in all eight conditions.
+
+  Two things had to be measured rather than reasoned about. The results page was first placed at
+  `$0900` and the uploaded image reached `$0948`, so the sweep overwrote its own driver as it
+  recorded — a build-time assertion now rejects that layout. And the shared bounded APU wait is a
+  fraction of a frame, right for every other Group E program and far too short for this one, which
+  runs about **42 frames**: the row reported SKIP while the SPC was working correctly and had
+  already reached the right answer in RAM.
+
+- **`E3.06` polls BOTH timers; a single end-of-interval read measured a phase, not a count.** The row
+  compares timer 2's rate against timer 0's over one interval. Timer 2 was already accumulated across
+  polls — that was the earlier fix for `TnOUT`'s four-bit ceiling — but timer 0 was still read
+  **exactly once**, at the end, on the reasoning that a handful of ticks is nowhere near its own wrap.
+  True about magnitude, and silent about phase: one read samples whatever sub-tick phase the previous
+  test left the timer in. `$F1`'s enable-raise resets a timer's stage-2 and stage-3 state (`E3.02`)
+  but nothing resets stage 0, so the reading was reproducible only while nothing before it disturbed
+  that phase.
+
+  It is not a hypothetical. Authoring a row that drives timer 2 hard (an SPC700 cycle-cost instrument)
+  broke `E3.06` **on the battery's second run and not its first** — the residue crosses the run
+  boundary. The band was not the problem and was not widened to admit it: **the row is right and its
+  instrument was one read short.**
+
+  Both counters are now accumulated in the same poll loop, over 32 passes rather than 24, so neither
+  side carries a phase. The comparison is quantisation-honest for the first time: each accumulated
+  count is exact to ±1, so `8 x T0` carries ±8 and the difference ±9 — the previous ±6 was tighter
+  than its own instrument could support, and passed only because the two phases happened to correlate.
+  The band is now ±10 and still discriminating by a wide margin: a core running every timer from the
+  8 kHz stage lands some ninety ticks out. Measured across hosts, the same interval yields T0 = 12-13
+  and T2 = 99 — the one-tick spread in T0 is precisely the sensitivity that ±6 could not absorb.
+
+- **`C11.12` is unauthorable, verified two ways — there is nothing to assert.** Checked rather than
+  assumed: the row's subject ("Mode 7 scroll offset latch timing") appears exactly **twice** in
+  `ref-docs/`, both times as a game-compatibility table row naming NHL '94, with **no behavioural
+  statement anywhere** — no value, no timing, no mechanism. And no reference models a distinct
+  timing: ares reads the register live in `sfc/ppu/mode7.cpp`
+  (`s32 hoffset = (i13)self.io.hoffsetMode7;`), with no per-scanline latch for a test to catch a core
+  getting wrong.
+
+  Writing a row would mean inventing an expectation and checking our own arithmetic against itself —
+  the `E9.11` failure mode. The genuinely testable part of `$210D`'s dual-latch behaviour (it updates
+  `M7HOFS` via `M7_old` *and* `BG1HOFS` via `BG_old`, with different formulas) is **already covered**
+  by `C4.01` and `C4.04`/`C4.05`, all blessed scenes; `C11.12` adds only the word *timing*, which is
+  the part nothing defines.
+
+  It belongs with `C13.*` and `F1.22`: enumerated, uncoverable, scored as such rather than chased.
+
+- **`inidisp_forgot_to_force_blank` is NOT a RustySNES defect, and the previous entry's account of
+  MesenCE's model was incomplete.** It was recorded as "the last per-dot framebuffer gap", to be
+  closed by tracking the CGRAM redirect target "in the fetch stage, per layer, on non-zero colour
+  indices". Reading the third reference changes the conclusion.
+
+  **The incomplete claim.** MesenCE was described as updating `InternalCgramAddress` only inside
+  `GetRgbColor`, "so a transparent pixel leaves the previous opaque column's value standing". It does
+  not. `SnesPpu::RenderBgColor()` runs **after** every layer render in a span and sets
+  `InternalCgramAddress = 0` for every backdrop column it fills, ascending. So MesenCE zeroes on
+  backdrop too — and what survives a span is decided by **pass ordering across the whole span**, not
+  by the last column drawn. That is an artefact of a span-based renderer, not a per-dot process.
+
+  **ares settles it.** `PPU::DAC::paletteColor` sets `latch.cgramAddress = palette` unconditionally,
+  called during per-dot priority resolution in the DAC — including `paletteColor(0)` for the
+  transparent case (`dac.cpp:71`). That is RustySNES's model exactly: one assignment per dot, from
+  the composited pixel, backdrop giving zero.
+
+  So RustySNES and ares implement the same per-dot model and MesenCE differs for architectural
+  reasons. The `7fc6` in the golden encodes **MesenCE's renderer**, not hardware. The row is
+  reclassified from a per-dot gap to a reference disagreement, and the engine is not changed to match
+  a pass-ordering artefact.
+
+  Two corroborations: `C3.12` ("CGRAM taken in render"), the scored cart row that asserts the
+  redirect target directly, **passes on Mesen2 and on RustySNES** — the two agree on the assertion
+  and differ only on this homebrew framebuffer hash. And `C3.12`'s own provenance is a per-dot
+  statement — "a CGRAM access during active display uses the colour the PPU **is drawing**" — which
+  the per-dot model implements directly and a span-ordering model only approximates.
+
+  This is the shape the Mode-5 first-pixel claim had, and the lesson from that retraction applied:
+  the third reference was read **before** publishing, not after.
+
+- **Interlace scenes: the recorded Mesen2 nondeterminism is GONE, but interlace is blocked for a
+  different reason.** Probed and withdrawn. Three consecutive Mesen2 runs and two snes9x runs of an
+  interlace scene produced identical results, so the standing note that "Mesen2 alternates between
+  both field parities run-to-run on one build" no longer reproduces — that was almost certainly the
+  `emu.setInput` defect fixed earlier, and "run any field-dependent capture twice per host" can be
+  retired as the *reason* interlace is blocked.
+
+  The actual blocker is that the two hosts emit different **widths** for the same interlace scene:
+  snes9x `256x224`, Mesen2 `512x478`. Hi-res worked because both emitted 512 wide and differed only
+  in height, which `HiResEven` absorbs by deriving the row step from the observed height. Here no
+  single `(xstep, ystep)` pair describes both reductions, so `extract` as designed — one declared
+  rule per scene, every host applying the same reduction — is insufficient.
+
+  `docs/adr/0013` records the three options and argues against the tempting one: a generic
+  "downsample whatever you get to 256x224" rule would subsume `HiResEven` but give up the
+  declared-not-inferred property, and would then silently accept a 256-wide frame for a scene that
+  must be 512.
+
+- **`C10.04` attempted and withdrawn: it is blocked by the same exclusion that unblocked `C5.15`.**
+  A Mode 5 scene with `MOSAIC = $01` was written against the control the working rules require — the
+  same canvas with mosaic off — and hashed **identically to it on both references**
+  (`0xf7ed8ab9ecd95d85` either way).
+
+  The reason is structural. A 2x1 mosaic pair merges an *even* column with its *odd* neighbour, and
+  `HiResEven` samples only the even columns, so the merge is invisible to the hash **by
+  construction**. `C10.04` therefore sits with `C5.06`/`C5.07`: its subject lives in the mainscreen
+  half, which the references diverge on by 33-35% pairwise and which rule 4 forbids blessing. No
+  variant of `HiResEven` can help — any rule including the odd columns inherits the disagreement.
+
+  Recorded rather than silently dropped, because the *attempt* is the finding: this is the
+  unshowable-scene trap in its documented form, and **the control scene is the only thing that
+  distinguishes "the references agree" from "nothing happened"**. Its doc comment said in advance
+  what an equal hash would mean, which is why the trap cost one run instead of a blessed golden that
+  proved nothing.
+
+- **`C5.15` is now blessed coverage: excluding the one undefined pixel made the rest of Mode 5
+  agree.** The retraction below establishes that the first hi-res pixel of a line is a genuine
+  reference disagreement on a value ares flags as *not confirmed on hardware*. Hashing it would have
+  made **every** hi-res scene permanently unblessable over one pixel.
+
+  `HiResEven` now excludes column 0, so the sample is 255x224 rather than 256x224 — a deliberate
+  part of the contract, recorded in the golden file's own header and in the variant's doc. With that
+  one column out, all three hosts agree bit-for-bit:
+
+  ```
+  snes9x     0xf7ed8ab9ecd95d85
+  Mesen2     0xf7ed8ab9ecd95d85
+  RustySNES  0xf7ed8ab9ecd95d85
+  ```
+
+  Rule 4 is satisfied, so the golden is blessed. **55 scenes match on both hosts, zero unblessed.**
+  Coverage `358 → 359 of 443`; `C5` drops to two uncovered rows (`C5.06`/`C5.07`, still blocked by
+  the mainscreen-column disagreement).
+
+- **RETRACTION: the Mode-5 first-pixel divergence is a 2-vs-2 reference disagreement, not a
+  RustySNES defect.** The entry below claims the two references agree bit-for-bit against RustySNES,
+  "this project's signature for a real defect". That was published from **two** references without
+  consulting the third, which is the exact mistake this project's own notes warn about.
+
+  Diffing the pixels rather than the hashes: the divergence is **one column** — column 0 of the
+  extracted sample, the first pixel of the 512-wide picture — on all 224 rows and nothing else. 224
+  differing pixels of 57,344. RustySNES `0x0000`, snes9x `0x0421` (the backdrop).
+
+  ares' `sfc/ppu/dac.cpp` settles it *against* the original conclusion: `scanline()` seeds
+  `math.above.colorEnable = false` under the comment *"the first hires pixel of each scanline is
+  transparent // note: exact value initializations are not confirmed on hardware"*, and `below()`
+  returns `(n15)0` — black — in that state. RustySNES does the same thing. The split is **RustySNES
+  + ares against snes9x + Mesen2**, on a value ares itself flags as unverified.
+
+  So there is **no defect to fix**, and `c5-mode5-hires-16px-tiles` is **not blessable** under
+  ADR 0013 rule 4 — it stays permanently unblessed as a variant set rather than looking like a
+  pending golden. `C5.15` does not become coverage this way; a hi-res scene avoiding column 0 would
+  make the rest of Mode 5 blessable, and that is the follow-up. The extraction infrastructure is
+  vindicated either way: two hosts with different geometries produced identical hashes for the other
+  57,120 pixels.
+
+- **Both scene hosts silently accepted an out-of-contract frame geometry.** The width tests were
+  lower bounds — `w < SCENE_W` in the libretro host, `#buf < …` in the Mesen2 script — which catch a
+  frame that is too *narrow* and miss one that is too **wide**. Too wide is the case that actually
+  happens: a hi-res frame arrives 512 across, both tests pass it, and each then hashes something
+  that is not the contract. The Lua script walks a 512-wide buffer with a stride of 256, hashing a
+  diagonal slice; the C host uses the real pitch and hashes the leftmost 256 columns. **A golden
+  blessed from either would be stable, reproducible and wrong.**
+
+  Both are exact now. Widening the scene region past 256×224 is real planned work, and it has to
+  start from a loud rejection rather than a silent wrong picture — which is what made this worth
+  finding before that work rather than during it.
+
+  The Mesen2 constant is **measured, not derived**: the first attempt computed
+  `SCENE_W * (SCENE_H + FIRST_ROW)` = 59,136, which is the size of the region *read* rather than of
+  the buffer *returned*, and rejected every frame. It is 256 × 239 — the whole output frame — and
+  the script now says so. All 54 scenes still match on both hosts.
+
+- **`F1.10` is now excluded from Mesen2's failing count as well as ares', on the same evidence.**
+  Adding `B2.07` made Mesen2's **PAL** verdict on that row flip between runs of a single build —
+  two runs of the same image gave `F1.03` alone, then `F1.03` + `F1.10`. That is the third
+  host/image combination to show it. The row samples `$4212` right at the vblank edge, so any test
+  added ahead of Group F moves the phase that decides it, and a gate that counts it fails on work
+  with nothing to do with controller ports.
+
+  `mesen_crossval.lua` now skips one index supplied through `ACCURACYSNES_SKIP_INDEX`, which
+  `crossval.sh` resolves **by ID** from `SOURCE_CATALOG.tsv` — the index moves whenever a test is
+  added ahead of it, which is exactly the circumstance that exposed the problem. The row is still
+  logged, just not counted, and the ares gate now shares the same resolved index instead of
+  computing its own. Three consecutive full cross-validation runs are stable.
+
+- **The APU ran 0.92% slow on PAL: its clock divisor was pinned to the NTSC master rate.**
+  `Bus::advance_master` converts master ticks to SMP base clocks through a fixed rational, and the
+  denominator was `715_909` — the NTSC master clock — in **both** regions. The APU runs from its own
+  24.576 MHz crystal, so its rate is the same on NTSC and PAL while the master clock's is not;
+  holding the whole *ratio* fixed therefore made the APU scale with the video clock. On PAL that is
+  `21_281_370 × 68352/715909 = 2_031_850` base Hz against hardware's `2_050_560`.
+
+  **Both references disagree with the old behaviour, from opposite directions.** ares
+  (`sfc/system/system.cpp`) region-sets `cpuFrequency` and never region-sets `apuFrequency` at all;
+  snes9x (`apu/apu.cpp`) carries two explicit ratios, `15664/328125` and `34176/709379`, which both
+  work out to an APU rate of exactly **1,025,280 Hz** and differ *only* in the master-clock
+  denominator — `709_379 × 30` is `21_281_370`, which is where the new constant comes from.
+
+  The divisor is now chosen from the PPU's region at the point of use rather than cached in `Clock`:
+  the accumulator is already serialized, and a second field agreeing with it is one more thing that
+  can disagree across a region change or a state restore.
+
+  **A stale doc comment had asserted the opposite** — `sync_region_from_cart` said "nothing else in
+  the core depends on which oscillator frequency a real console would use". The SPC accumulator is
+  exactly that one thing; the comment is corrected rather than left to mislead. `docs/scheduler.md`
+  §async-resync and `docs/apu.md` updated in the same change.
+
+  NTSC output is byte-identical. `the_apu_rate_is_region_independent` asserts the two divisors differ
+  by exactly the ratio of the two master clocks, observed through emitted DSP samples so it needs no
+  new counter; it fails when the region-blind behaviour is injected. The AccuracySNES battery and
+  both images still cross-validate three ways.
+
+- **`F1.10`'s ares verdict is not reproducible, and is now excluded from that gate by name.**
+  Adding `E9.09` — an APU row with nothing to do with controller ports — made ares' verdict on
+  `F1.10` flip run to run: `04` on eight runs of eight before, then `01` on two of five and `04` on
+  the other three, same binary and same image. The row samples `$4212` at the vblank edge, so the
+  cart's execution phase decides it and anything added ahead of Group F moves that phase.
+
+  This is the **fourth** instance of the same trap this cycle and the second on this exact row —
+  Mesen2's `F1.10` verdict flipped the other way when `E3.06` was rewritten. Two of three references
+  now demonstrate the row's cross-host verdict carries no information.
+
+  A count that includes it is a gate that flakes on unrelated work, so `ARES_KNOWN_FAILURES` drops
+  4 → 3 and `crossval.sh` resolves the excluded row through `SOURCE_CATALOG.tsv` **by ID at run
+  time**: the catalogue index moves whenever a test is added ahead of it, which is exactly what
+  exposed the problem. The count is reproducible across runs again (five for five). RustySNES passes
+  the row because of a deliberate fix and that stands; pinning its sampling point is the only thing
+  that would make a reference's verdict on it mean anything.
+
+- **CORRECTION: the battery covers 351 of 443 assertions, not 350.** The `E5.06` entry below says
+  coverage was "350 either way"; the regenerated `docs/accuracysnes-coverage.md` reads **297 on-cart
+  + 54 scene-only = 351**. `docs/STATUS.md` and `docs/accuracysnes-plan.md` are synced to the
+  generated figure, along with three other hand-maintained lines that had drifted behind this
+  cycle's work: the reference list (now **Mesen2, snes9x and ares**, with MesenCE named separately as
+  the compositor blueprint rather than as a cross-validation reference), Mesen2's known-failure
+  rationale (`F1.03` alone, and *why* — it clocks both ports out of one latch), and the scene tally
+  (54, on both scene hosts). The generated report is the authority precisely because these drift;
+  this is the periodic reconciliation, not a coverage change.
+
+## [1.28.0] "Plumbline" - 2026-07-31
+
+### Added
 
 - **AccuracySNES: the Mesen2 oracle is FIXED — one `emu.setInput` call too many.** The battery has
   never run under MesenCE; it now completes: `magic='ACSN'`, `R_DONE=$A5`, **335/335** status bytes
@@ -1347,6 +1358,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the bus cycle collapses the difference to exactly 0 and fails the row. snes9x's divergence count
   is unchanged, so it passes the row as well.
 
+## [1.27.0] "Tether" - 2026-07-31
+
+### Added
+
 - **Netplay: a connection-quality readout, a graded desync banner, and a disconnect that actually
   fires.** The two preceding entries built the machinery; nothing in the frontend read it. The
   session's transport is now wrapped in `LivenessTransport` and ticked once per frame from
@@ -1472,131 +1487,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were verified by re-injecting the old fail-on-first behaviour and confirming they fail. See the
   new `docs/netplay.md`.
 
-- **The golden vectors ran in no pull-request job.** Only `lint`, `test-light`, and `accuracysnes`
-  run on a PR; `test-light` never passes `--features test-roms`, and the `accuracysnes` job scoped
-  itself to `--test accuracysnes`. So the **53 rendered-scene goldens and every framebuffer golden**
-  were reached only by `full-test`, which runs on `main`, tags, and the weekly cron. A PR could
-  shift PPU behaviour, move a golden, and hear nothing about it until merge-to-main.
-
-  That is the same structure behind this project's own coprocessor-golden staleness (goldens left
-  stale by post-bless PPU accuracy fixes): a golden vector nothing executes only accumulates drift.
-  Here it was not that nothing ran them ever, but that nothing ran them while it was still cheap to
-  fix. The `accuracysnes` job now also runs the scene, undisbeliever, rainwarrior, coprocessor, and
-  save-state suites — ~5 minutes for the three with a committed corpus; the `*_oncart` suites need
-  gitignored dumps and self-skip for free, listed anyway so the intent is explicit.
-
-  Found while looking for RustySNES's analogue of the sibling's `expansion_level_tripwire`. That
-  mechanism does **not** port: the only `commercial-roms`-gated suite here
-  (`commercial_screenshots`) is a screenshot generator that asserts nothing, so it holds no golden
-  that can go stale, and PPU accuracy is not parameterised by a small constant set the way
-  expansion-audio levels are. Looking for it surfaced a real and larger gap instead.
-
-### Changed
-
-- **`crossval.sh`'s Mesen2 known-failure comment is keyed on rows, not catalogue indices, and its
-  `F1.10` attribution is corrected against a measurement.** The comment named `idx279 F1.03` and `idx286 F1.10`; in
-  the current catalogue those indices are `F1.01` and `F1.08`, because an index moves whenever a test
-  is added ahead of it. An index in a comment is a fact with a shelf life.
-
-  That comment also attributed Mesen2's `F1.10` failure to the port-2 limitation, while the snes9x
-  block a few lines above said Mesen2 *passes* `F1.10`. Both could not be true, and nobody had
-  measured it since the catalogue grew. `scripts/accuracysnes/mesen_failing_set_probe.lua` now does:
-  read at `R_DONE` (frame 482), the failing set is exactly **`F1.03` and `F1.10`**, identical across
-  four runs.
-
-  The two fail for **different** reasons, and lumping them under one rationale is what hid it.
-  `F1.03` genuinely clocks both ports out of one latch (`$4016` *and* `$4017`), so the port-2
-  limitation is real for it and only for it. `F1.10` reads `$4016` only; Mesen2 fails it for the same
-  reason snes9x and ares do — the automatic read modelled as starting at the vblank edge.
-
-  **So `F1.10` is 1-vs-3, with RustySNES passing alone**, and the snes9x block's "Mesen2 delays the
-  start and passes" is retracted. The row is Documented (fullsnes: the read starts ~dot 32.5–95.5 of
-  the first vblank line) and RustySNES passes it only because of a deliberate fix. A first-party
-  accuracy cart being right where three references are wrong is the point of having one — but 1-vs-3
-  on a scored row is stated rather than left to be mistaken for consensus.
-
-  One operational gotcha found on the way: **the Mesen2 runner can under-report under load.** One run
-  returned 1 where every other returned 2, with four other `dotnet` processes live. `--timeout=60` is
-  a wall-clock bound, so a loaded machine can cut the battery short and report a *smaller* failing
-  count — which reads as "things improved", the most dangerous direction for a gate to be wrong in.
-
-- **AccuracySNES: `E9.01` and `E9.02` stand down as SKIP on a menu restart.** `E9.02` steps the noise
-  LFSR by design and nothing can put it back: `FLG` bit 7 is the DSP's *soft* reset and does not
-  re-seed the shift register (checked against ares, which re-seeds only in `DSP::power`). A comment
-  in `voice_program` claimed the opposite and has been corrected. `E9.02` is registered last, both
-  rows use the same power-on gate `F1.07` uses for its unwritten `$4218`, and the harness's
-  restart-idempotence check moved from `first_run_passed - 1` to `- 3`.
-
-- **Run-ahead stays opt-in, and the reason is now measured rather than assumed.**
-  `docs/frontend.md` recorded the per-frame save-state allocation as *the* blocker on making
-  run-ahead default-on. `v1.25.0` removed that allocation, so the question was re-measured.
-
-  Absolute timings below are from one development machine and will differ on other hardware — they
-  are recorded because the **ratios** are what decide this, and a reader can only check a ratio by
-  re-running the same two benches (`save_state_cost`, `headless_frame`) and comparing. The
-  percentages are the portable part; the microseconds are the working:
-
-  | | cost |
-  |---|---:|
-  | `save_state` | ~119 µs |
-  | `load_state` | ~285 µs |
-  | **save/load round trip** | **~0.40 ms** |
-  | one emulated frame (`headless_frame_steady_state`) | **6.39 ms** |
-  | NTSC frame budget | 16.64 ms |
-
-  The round trip is **2.4%** of the budget — it was never the dominant cost, and removing the
-  allocation did not move the decision. What run-ahead costs is the extra frame of emulation, which
-  is inherent: `frames = 1` needs **79%** of the NTSC budget on a fast development machine, leaving
-  ~3.5 ms for present, UI, and audio; `frames = 2` needs **118%** and cannot hold 60 fps at all.
-  Defaulting that on would miss deadlines on ordinary hardware to buy latency nobody asked for.
-
-- **`RunAheadConfig`'s `Default` is hand-written so the throttle is armed.** A derived `Default`
-  gave `throttle_ms: 0.0`, which *disables* the throttle — leaving the safety net off for exactly
-  the user who had just enabled run-ahead from Settings and had no `throttle_ms` line in their
-  `config.toml`. It now defaults to 14 ms (below the 16.64 ms NTSC deadline with headroom, and
-  conservative against PAL's 20 ms). An existing config that spells the field out keeps its value;
-  `#[serde(default)]` fills only absent fields, pinned by a negative-control test.
-
-### Security
-
-- **CI supply-chain hardening — every workflow credential, action pin, and the release gate.**
-  Three items, the first two carried over from the sibling project's `v2.2.2` audit and the third
-  raised in review of the fuzzing PR.
-
-  **`persist-credentials: false` on 15 of 17 checkouts.** `actions/checkout` writes the workflow
-  `GITHUB_TOKEN` into `.git/config`, where anything the job then executes from the tree — build
-  scripts, proc macros, test binaries, `scripts/*.sh`, the MkDocs build — can read it. On a pull
-  request that tree is by definition unreviewed code, and nearly every job here compiles or runs
-  it. Highest exposure was `web.yml`'s `build`, which holds `pages: write` + `id-token: write`
-  while running `trunk`, `cargo doc`, `pip install`, and `mkdocs build`.
-
-  Audited per site rather than applied blanket, and that mattered: **`release-auto.yml`'s `prepare`
-  job genuinely needs the credential** — it creates an annotated tag and `git push origin "$TAG"`,
-  which authenticates through exactly that token. The sibling's audit concluded no job needed it;
-  that conclusion does not transfer, and a blanket sweep would have broken every future release.
-  It is now the only checkout in the repository that keeps the token, with the reason recorded
-  inline, and its exposure is bounded by its trigger (`workflow_run` on a completed CI run of
-  `main`, never a pull request).
-
-  **The release-tag existence check now fails closed.** It was
-  `git ls-remote --exit-code --tags origin "refs/tags/${tag}"`, which collapses three outcomes into
-  two — tag present, tag absent, and *lookup failed* — reading any non-zero exit as "absent". A
-  transient network blip, auth hiccup, or rate limit therefore sent an already-released version
-  down the `should_release=true` path, re-tagging a release the ceremony treats as immutable. Now a
-  `gh api git/matching-refs/tags/<tag>` call, chosen over `git/ref/tags/<tag>` because it answers
-  "absent" with HTTP 200 and an empty array, so a genuine miss can never be confused with an error.
-  That endpoint matches by **prefix**, so the exact ref is compared in `jq` — verified necessary,
-  not theoretical: `v1.2` prefix-matches **7** real tags while exact-matching none, and a naive
-  `length > 0` would have reported it as already released. Every failure path aborts the job.
-
-  **All 34 third-party action references pinned to immutable commit SHAs**, across all 8 workflows
-  plus the composite `rust-setup` action. An upstream tag move could previously change what CI
-  executes without any repository review. Each pin carries its original tag as a trailing comment
-  so the intent stays readable. Also aligned one `actions/upload-artifact@v4` (introduced with the
-  fuzz job) to the `@v7` the rest of the repo already used.
-
-  Verified: `actionlint` reports the same three findings before and after (a self-hosted runner
-  label and two pre-existing shellcheck notes) — no new lint surface; all nine files parse.
+## [1.26.0] "Bulwark" - 2026-07-31
 
 ### Added
 
@@ -1639,6 +1530,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detection scores candidate offsets, so a random image essentially never scores above zero —
   unseeded, `rom_header` plateaus around 29 edges and never reaches this code. Seeded from the
   committed permissive ROM corpus it surfaced in under twenty seconds.
+
+### Changed
+
+- **Run-ahead stays opt-in, and the reason is now measured rather than assumed.**
+  `docs/frontend.md` recorded the per-frame save-state allocation as *the* blocker on making
+  run-ahead default-on. `v1.25.0` removed that allocation, so the question was re-measured.
+
+  Absolute timings below are from one development machine and will differ on other hardware — they
+  are recorded because the **ratios** are what decide this, and a reader can only check a ratio by
+  re-running the same two benches (`save_state_cost`, `headless_frame`) and comparing. The
+  percentages are the portable part; the microseconds are the working:
+
+  | | cost |
+  |---|---:|
+  | `save_state` | ~119 µs |
+  | `load_state` | ~285 µs |
+  | **save/load round trip** | **~0.40 ms** |
+  | one emulated frame (`headless_frame_steady_state`) | **6.39 ms** |
+  | NTSC frame budget | 16.64 ms |
+
+  The round trip is **2.4%** of the budget — it was never the dominant cost, and removing the
+  allocation did not move the decision. What run-ahead costs is the extra frame of emulation, which
+  is inherent: `frames = 1` needs **79%** of the NTSC budget on a fast development machine, leaving
+  ~3.5 ms for present, UI, and audio; `frames = 2` needs **118%** and cannot hold 60 fps at all.
+  Defaulting that on would miss deadlines on ordinary hardware to buy latency nobody asked for.
+
+- **`RunAheadConfig`'s `Default` is hand-written so the throttle is armed.** A derived `Default`
+  gave `throttle_ms: 0.0`, which *disables* the throttle — leaving the safety net off for exactly
+  the user who had just enabled run-ahead from Settings and had no `throttle_ms` line in their
+  `config.toml`. It now defaults to 14 ms (below the 16.64 ms NTSC deadline with headroom, and
+  conservative against PAL's 20 ms). An existing config that spells the field out keeps its value;
+  `#[serde(default)]` fills only absent fields, pinned by a negative-control test.
+
+### Fixed
+
+- **The golden vectors ran in no pull-request job.** Only `lint`, `test-light`, and `accuracysnes`
+  run on a PR; `test-light` never passes `--features test-roms`, and the `accuracysnes` job scoped
+  itself to `--test accuracysnes`. So the **53 rendered-scene goldens and every framebuffer golden**
+  were reached only by `full-test`, which runs on `main`, tags, and the weekly cron. A PR could
+  shift PPU behaviour, move a golden, and hear nothing about it until merge-to-main.
+
+  That is the same structure behind this project's own coprocessor-golden staleness (goldens left
+  stale by post-bless PPU accuracy fixes): a golden vector nothing executes only accumulates drift.
+  Here it was not that nothing ran them ever, but that nothing ran them while it was still cheap to
+  fix. The `accuracysnes` job now also runs the scene, undisbeliever, rainwarrior, coprocessor, and
+  save-state suites — ~5 minutes for the three with a committed corpus; the `*_oncart` suites need
+  gitignored dumps and self-skip for free, listed anyway so the intent is explicit.
+
+  Found while looking for RustySNES's analogue of the sibling's `expansion_level_tripwire`. That
+  mechanism does **not** port: the only `commercial-roms`-gated suite here
+  (`commercial_screenshots`) is a screenshot generator that asserts nothing, so it holds no golden
+  that can go stale, and PPU accuracy is not parameterised by a small constant set the way
+  expansion-audio levels are. Looking for it surfaced a real and larger gap instead.
+
+### Security
+
+- **CI supply-chain hardening — every workflow credential, action pin, and the release gate.**
+  Three items, the first two carried over from the sibling project's `v2.2.2` audit and the third
+  raised in review of the fuzzing PR.
+
+  **`persist-credentials: false` on 15 of 17 checkouts.** `actions/checkout` writes the workflow
+  `GITHUB_TOKEN` into `.git/config`, where anything the job then executes from the tree — build
+  scripts, proc macros, test binaries, `scripts/*.sh`, the MkDocs build — can read it. On a pull
+  request that tree is by definition unreviewed code, and nearly every job here compiles or runs
+  it. Highest exposure was `web.yml`'s `build`, which holds `pages: write` + `id-token: write`
+  while running `trunk`, `cargo doc`, `pip install`, and `mkdocs build`.
+
+  Audited per site rather than applied blanket, and that mattered: **`release-auto.yml`'s `prepare`
+  job genuinely needs the credential** — it creates an annotated tag and `git push origin "$TAG"`,
+  which authenticates through exactly that token. The sibling's audit concluded no job needed it;
+  that conclusion does not transfer, and a blanket sweep would have broken every future release.
+  It is now the only checkout in the repository that keeps the token, with the reason recorded
+  inline, and its exposure is bounded by its trigger (`workflow_run` on a completed CI run of
+  `main`, never a pull request).
+
+  **The release-tag existence check now fails closed.** It was
+  `git ls-remote --exit-code --tags origin "refs/tags/${tag}"`, which collapses three outcomes into
+  two — tag present, tag absent, and *lookup failed* — reading any non-zero exit as "absent". A
+  transient network blip, auth hiccup, or rate limit therefore sent an already-released version
+  down the `should_release=true` path, re-tagging a release the ceremony treats as immutable. Now a
+  `gh api git/matching-refs/tags/<tag>` call, chosen over `git/ref/tags/<tag>` because it answers
+  "absent" with HTTP 200 and an empty array, so a genuine miss can never be confused with an error.
+  That endpoint matches by **prefix**, so the exact ref is compared in `jq` — verified necessary,
+  not theoretical: `v1.2` prefix-matches **7** real tags while exact-matching none, and a naive
+  `length > 0` would have reported it as already released. Every failure path aborts the job.
+
+  **All 34 third-party action references pinned to immutable commit SHAs**, across all 8 workflows
+  plus the composite `rust-setup` action. An upstream tag move could previously change what CI
+  executes without any repository review. Each pin carries its original tag as a trailing comment
+  so the intent stays readable. Also aligned one `actions/upload-artifact@v4` (introduced with the
+  fuzz job) to the `@v7` the rest of the repo already used.
+
+  Verified: `actionlint` reports the same three findings before and after (a self-hosted runner
+  label and two pre-existing shellcheck notes) — no new lint surface; all nine files parse.
 
 ## [1.25.0] "Workbench" - 2026-07-30
 

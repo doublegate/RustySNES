@@ -80,6 +80,7 @@ plugins:
 not_in_nav: |
   adr/
   audit/
+  releases/
 
 nav:
   - Home: DOCUMENTATION_INDEX.md
