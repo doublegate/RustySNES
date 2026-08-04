@@ -9,7 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.30.1] "Imprint" - 2026-08-04
+
 ### Changed
+
+- **The AI-assistance disclosure moved to the top of the README**, as a `Development note` blockquote
+  immediately after the opening paragraph — the placement the sibling project uses, so the two read
+  the same way. A disclosure that a reader has to scroll 800 lines to find is a disclosure in name
+  only. The License section keeps a one-paragraph pointer rather than repeating it.
+
+- **The emulator capability-comparison graphic is removed**, along with its now-orphaned asset
+  (`images/RustySNES_Emu-Compare.png`). It ranked this project against Mesen2, bsnes, Snes9x and
+  ares in a hand-drawn diagram whose contents nothing verified and nothing regenerated — its own
+  caption already had to disclaim it as "illustrative" and point elsewhere for real numbers. A
+  comparison that has to disclaim itself is not carrying its weight, and this release is about the
+  written record matching what can be checked. The measured, always-current figures remain in
+  `docs/STATUS.md` and the Compatibility and Accuracy table.
+
+- **The README's AccuracySNES figures were badly stale** and are corrected against the generated
+  coverage report: the battery is **346 tests at 100% on-cart covering 304 of 443** assertions, not
+  "124 / 124 scoring, plus 10 golden vectors", and rendered scenes cover **55** rather than 3 — with
+  the third **host-side** tier (2) named, the total stated as **361 of 443**, and the standing rule
+  that the three tiers are never summed into one figure made explicit. The cross-validation line
+  also still said "Mesen2 and snes9x" when a third reference (ares) landed in `v1.29.0`.
 
 - **Provenance, licensing and attribution pass — the written record now matches what the code
   actually is. Zero emulation-core behaviour change.** Run against `docs/provenance.md`'s playbook.

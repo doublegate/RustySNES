@@ -3,7 +3,7 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.30.0 "Threshold"` (`v1.29.0 "Triangulate"`, `v1.28.0 "Plumbline"`,
+**Current release:** `v1.30.1 "Imprint"` (`v1.30.0 "Threshold"`, `v1.29.0 "Triangulate"`, `v1.28.0 "Plumbline"`,
 `v1.27.0 "Tether"`, `v1.26.0 "Bulwark"`, `v1.25.0 "Workbench"`, `v1.24.0 "Ensemble"`, `v1.23.0 "Cadence"`, `v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,

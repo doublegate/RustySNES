@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.30.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
+  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.30.1-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
   <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/65C816%20oracle-0--diff-brightgreen.svg" alt="65C816 oracle: 0-diff"></a> <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/SPC700%20oracle-0--diff-brightgreen.svg" alt="SPC700 oracle: 0-diff"></a> <a href="https://doublegate.github.io/RustySNES/"><img src="https://img.shields.io/badge/pages-demo%20%2B%20rustdoc%20%2B%20docs-success.svg" alt="GitHub Pages"></a><br>
   <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Web-lightgrey.svg" alt="Platform"></a>
 </p>
@@ -26,6 +26,17 @@ pure Rust.** Following the lineage of its predecessor
 [`RustyNES`](https://github.com/doublegate/RustyNES), it targets the Mesen2 / higan / ares
 accuracy bar — a master-clock lockstep scheduler, a strictly-owned bus, and a deterministic audio
 resync model.
+
+> **Development note — AI-assisted:** RustySNES is heavily AI-assisted software, built with LLM
+> tooling under a human-directed, test-driven workflow (public test ROMs and a first-party
+> self-scoring accuracy cartridge as the oracle, a `no_std` core, and continuous CI). The
+> repository's own history makes the pace plain — first commit `2026-06-25`, ~120,000 lines of Rust
+> across ~480 commits in about six weeks. See
+> [`docs/originality-and-provenance.md`](docs/originality-and-provenance.md) for what that means for
+> originality and licensing, [`NOTICE`](NOTICE) for attribution, and the
+> [Acknowledgments](#acknowledgments) for the references and components it builds on. Accuracy
+> claims are meant to be *checked* by running the public suites, not taken on faith; comparisons to
+> other emulators are comparisons, not a claim of being "better."
 
 Beyond reference accuracy, RustySNES is a real, playable emulation platform today: a native
 desktop shell (`winit` + `wgpu` + `cpal` + `egui`) boots real commercial ROMs with picture, sound,
@@ -462,7 +473,8 @@ Run `rustysnes help controls` / `help gamepad` for the full reference.
 No *publicly available* SNES ROM plays the role AccuracyCoin plays for the NES, so RustySNES
 wrote one: **AccuracySNES** ([`tests/roms/AccuracySNES/`](tests/roms/AccuracySNES/)), a
 first-party, dual-MIT/Apache-2.0 self-scoring test cartridge. It runs with no input, publishes its
-verdicts to WRAM, and is cross-validated headlessly against Mesen2 and snes9x. The point of the
+verdicts to WRAM, and is cross-validated headlessly against **three independent references** —
+snes9x, Mesen2, and (as of `v1.29.0`) a headless ares host. The point of the
 design is that it needs no host-side expected values: the identical image is meant to run
 unmodified on any emulator and, on a flash cart, on a real console — though see the honest ceiling
 below, because it has not yet been run on one. Around it, accuracy is a
@@ -472,8 +484,8 @@ here, always current, reaffirmed every release:
 
 | Layer | Result |
 | --- | --- |
-| AccuracySNES (first-party self-scoring cartridge) | **100.00%** — 124 / 124 scoring, plus 10 golden vectors; agrees with Mesen2 and snes9x on both the NTSC and PAL images |
-| AccuracySNES rendered scenes (host framebuffer oracle, [`docs/adr/0013`](docs/adr/0013-accuracysnes-framebuffer-oracle.md)) | **3 / 3 blessed** — reported separately and deliberately **not** folded into the line above, because a rendered scene needs a host holding the golden |
+| AccuracySNES (first-party self-scoring cartridge) | **100.00% on-cart** — a 346-test battery covering **304 of 443** enumerated assertions; cross-validated against snes9x, Mesen2 and ares on both the NTSC and PAL images |
+| AccuracySNES rendered scenes (host framebuffer oracle, [`docs/adr/0013`](docs/adr/0013-accuracysnes-framebuffer-oracle.md)) | **55 assertions**, all blessed only from a render the references agree on — reported separately and deliberately **not** folded into the line above, because a rendered scene needs a host holding the golden. A third **host-side** tier covers 2 more, admitted only where the cart physically cannot observe the assertion. **361 of 443 in total, never summed into one figure** ([`docs/accuracysnes-coverage.md`](docs/accuracysnes-coverage.md), regenerated with the ROM so it cannot drift) |
 | CPU (65C816) per-opcode oracle | **99.994%** — 5,119,710 / 5,120,000; the 290 residuals are emulation-mode cases where SST is the lone outlier vs bsnes/ares/MesenCE/snes9x + AccuracySNES, resolved toward hardware ([`docs/adr/0002`](docs/adr/0002-fractional-timebase-refactor.md), [`docs/cpu.md`](docs/cpu.md)) |
 | SPC700 per-opcode oracle | **0-diff, 100.00%** — 256,000 / 256,000 |
 | On-cart CPU (gilyon `cputest-basic`) | **green** — 1107 / 1107 "Success" |
@@ -535,14 +547,6 @@ or opt-in flag, so the default/native/`no_std`/wasm builds stay byte-identical w
 > a headline unit test number alone (unit/integration tests run in `cargo test --workspace`, separate from the
 > oracle suites above, which need `--features test-roms`). When a doc and a passing test ROM
 > disagree, **the ROM wins** — that is this project's definition of "cycle-accurate."
-
-<p align="center">
-  <img src="images/RustySNES_Emu-Compare.png" alt="RustySNES capability comparison against Mesen2, bsnes, Snes9x, and ares" width="800">
-</p>
-
-<p align="center"><sub>An illustrative capability comparison against established SNES emulators —
-authoritative, always-current pass counts live in <a href="docs/STATUS.md">docs/STATUS.md</a>,
-not this diagram.</sub></p>
 
 ---
 
@@ -623,7 +627,12 @@ Material-for-MkDocs documentation handbook at
 
 ## Current Release
 
-RustySNES's current release is **v1.30.0 "Threshold"** — the last rung before the mobile store
+RustySNES's current release is **v1.30.1 "Imprint"** — a provenance, licensing and attribution
+release with **zero emulation-core behaviour change**: the written record now matches what the code
+actually is. See [`NOTICE`](NOTICE) and
+[`docs/originality-and-provenance.md`](docs/originality-and-provenance.md).
+
+It follows **v1.30.0 "Threshold"** — the last rung before the mobile store
 gate: an App Store §4.7 mobile-shell supplement, an unsigned Android release build path, an
 instrumented UniFFI smoke test that boots a real cartridge on a device, a **51% headless frame-time
 recovery** (14.34 ms → 7.03 ms) bisected to a per-dot H-IRQ walk, and a fuzzing campaign that turns
@@ -799,18 +808,12 @@ project's own comments previously described that relationship wrongly, is in
 NotoEmoji, Hack, emoji-icon-font). Their licences ship with every release in
 [`LICENSES-THIRD-PARTY-FONTS.txt`](LICENSES-THIRD-PARTY-FONTS.txt).
 
-### AI-assistance disclosure
-
-**RustySNES is developed with substantial AI assistance.** The architecture, accuracy methodology,
-and engineering judgement are the maintainer's; a large fraction of the code and documentation is
-written by an AI coding agent working under that direction. The repository's own history makes the
-pace plain — first commit `2026-06-25`, and roughly 120,000 lines of Rust across ~480 commits within
-about six weeks — and it is disclosed here rather than left for a reader to infer.
-
-This does not change how the project's accuracy claims should be judged, because those claims are
-deliberately built to be checkable without trusting the author: an on-cart battery that scores
-itself, three independent reference emulators, and a coverage report regenerated with the artefact
-it describes. See [`docs/originality-and-provenance.md`](docs/originality-and-provenance.md).
+**AI assistance.** RustySNES is heavily AI-assisted software; the disclosure is at the top of this
+README, and [`docs/originality-and-provenance.md`](docs/originality-and-provenance.md) sets out what
+that means for originality and licensing. It does not change how the accuracy claims should be
+judged, because those claims are built to be checkable without trusting the author: an on-cart
+battery that scores itself, three independent reference emulators, and a coverage report regenerated
+with the artefact it describes.
 
 ---
 
@@ -859,7 +862,7 @@ If you use RustySNES in academic research, please cite:
   author  = {RustySNES Contributors},
   title   = {RustySNES: A Cycle-Accurate SNES Emulator in Rust},
   year    = {2026},
-  version = {1.30.0},
+  version = {1.30.1},
   url     = {https://github.com/doublegate/RustySNES},
   note    = {Cycle-accurate SNES/Super Famicom emulator on a master-clock-precise scheduler;
              65C816 and SPC700 both 0-diff against their per-opcode oracles; AccuracySNES,
