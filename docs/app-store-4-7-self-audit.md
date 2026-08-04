@@ -1,15 +1,28 @@
-# App Store §4.7 self-audit — mobile shells
+# App Store §4.7 — mobile-shell supplement
+
+> **This is NOT the project's §4.7 self-audit.** That audit already existed when this file was
+> written: it is "App Store §4.7 self-audit" in `docs/mobile-readiness.md`, completed in `v1.30.0`
+> (#291), and **it is the authoritative one**. This file was created in #332 under the false belief
+> that no audit existed — the claim is corrected here rather than removed, because the two reach
+> **different verdicts on trademark exposure** and a reader needs to know which governs.
+>
+> | | scope | trademark verdict |
+> |---|---|---|
+> | `mobile-readiness.md` (#291) — **authoritative** | the whole shipped tree | **findings; maintainer decision needed** (`cli.rs`, `ui_shell.rs`: "Super Nintendo Entertainment System", "Super Famicom", a "Super Scope" picker label) |
+> | this file (#332) — supplement | **only** `android/app/src/main` and `ios/RustySNES` | clean *within that scope* |
+>
+> Both are true of their own scope. This one is narrower, and being narrower is the only reason its
+> trademark section reads clean — it never looked at the desktop frontend. Where they differ, the
+> wider audit governs.
+>
+> What this file adds that the authoritative audit does not: a per-criterion capability argument for
+> the two mobile shells specifically, with file:line citations, useful when the store submission is
+> scoped to those shells.
 
 **Audit date:** 2026-08-02 · **Audited revision:** `main` at the `A6.15` merge (#331) ·
-**Result: PASS on every criterion checked, with two items flagged for re-audit before submission.**
-
-This is the formal §4.7 self-audit `docs/mobile-readiness.md` recorded as outstanding. It is an
-audit **against the shipped UI**, not an assertion about intent: every finding below cites the file
-and line it was read from, so a reviewer can re-run it rather than take it on trust.
-
-It is **not** a legal opinion, and it is **not** the store-launch gate. Mobile Phase 6 remains
-**NOT GREENLIT** — see `docs/mobile-readiness.md`. Passing this audit removes one prerequisite from
-that gate's checklist; it does not move the gate.
+**Result within the mobile-shell scope: PASS on every criterion checked**, with two items flagged
+for re-audit before submission — and see the authoritative audit for the trademark findings this
+scope cannot see.
 
 ## Scope
 
@@ -63,7 +76,11 @@ Neither shell can fetch anything.
 This is the strongest single fact in the audit: the "user-provided software" requirement is
 enforced by the app's *capabilities*, not merely by its UI.
 
-## Criterion 4 — no third-party trademark exposure · **PASS**
+## Criterion 4 — no third-party trademark exposure **in the mobile shells** · PASS *in scope*
+
+**Read the authoritative audit's §3 first.** It examined the whole tree and found trademark strings
+in `cli.rs` and `ui_shell.rs` that require a maintainer decision. Nothing below contradicts that;
+this section says only that the *mobile shells* add none of their own.
 
 Every user-visible string in both shells was enumerated. In full:
 

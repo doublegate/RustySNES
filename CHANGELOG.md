@@ -14,9 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`v1.30.0` mobile store-readiness: the App Store §4.7 self-audit, a release build path, and a
   UniFFI runtime smoke test — plus a correction to four stale claims in the readiness doc.**
 
-  **The §4.7 self-audit** (`docs/app-store-4-7-self-audit.md`) is the item `docs/mobile-readiness.md`
-  recorded as outstanding, and it is the only one of the store-facing items that is *not*
-  maintainer-blocked. It passes on all five criteria, and the strongest evidence is capability rather
+  **CORRECTION (2026-08-03).** This entry said the §4.7 self-audit was outstanding and that #332
+  performed it. **That was false** — the audit already existed, in `docs/mobile-readiness.md`, done
+  in #291, and it remains the authoritative one. What #332 actually added is a **mobile-shell
+  supplement** scoped to `android/app/src/main` and `ios/RustySNES` only. The distinction matters:
+  the authoritative audit reports **trademark findings requiring a maintainer decision**
+  (`cli.rs`, `ui_shell.rs` carry "Super Nintendo Entertainment System", "Super Famicom" and a
+  "Super Scope" picker label), where the supplement reads clean **because it never looked outside
+  the mobile shells**. Both files now say so at the top.
+
+  **The mobile-shell supplement** (`docs/app-store-4-7-self-audit.md`) is scoped to the two shells It passes on all five criteria, and the strongest evidence is capability rather
   than intent: **Android declares no permissions at all — not even `INTERNET`** — and iOS has no
   networking code, so neither shell *can* obtain game software. Every user-visible string in both
   shells was enumerated; the complete set is `RustySNES`, `Open ROM`, `Save State`, `Load State`. Two

@@ -250,15 +250,26 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
   here" gap at the *app-launch* level. It does **not** prove a ROM boots — the simulator run has no
   ROM to open, because the app takes ROMs only from the user's document picker (by design; see
   `docs/app-store-4-7-self-audit.md`).
-- **The App Store §4.7 self-audit is DONE (`v1.30.0`)** — `docs/app-store-4-7-self-audit.md`. It
-  passes on all five criteria checked, with the strongest evidence being capability rather than
-  intent: Android declares **no permissions at all**, not even `INTERNET`, and iOS has no networking
-  code, so neither shell *can* obtain game software. Two re-audit triggers are recorded there (the
-  peripheral UI when it lands, and `rustysnes-monetization` if activated).
+- **The App Store §4.7 self-audit was already DONE before `v1.30.0`, and a later entry in this file
+  wrongly said otherwise.** The audit lives in "App Store §4.7 self-audit" **below in this file**,
+  written in `v1.30.0` (#291). It is the authoritative one, and its verdict is *not* a clean pass:
+  two of three risk classes are clean and **the third — trademark exposure — has findings the
+  maintainer must decide on**.
+
+  `docs/app-store-4-7-self-audit.md` (#332) is a **supplement, not a replacement**, and it is
+  narrower than it first appears: it audits **only the two mobile shells** (`android/app/src/main`,
+  `ios/RustySNES`), which is why its trademark criterion reads clean where the audit below does not.
+  The audit below examined the whole shipped tree and found `cli.rs` and `ui_shell.rs` carrying
+  "Super Nintendo Entertainment System", "Super Famicom" and a "Super Scope" picker label. Both
+  statements are true of their own scope; only the wider one governs.
+
+  **The claim in #332 that this audit "had never been done" was false.** Recorded here rather than
+  quietly deleted, because a readiness document whose corrections are invisible is the thing this
+  file exists to avoid.
 - **Still genuinely outstanding: distribution signing and TestFlight** — the `ios.yml` upload step
   is an explicit no-op pending the project owner provisioning real signing secrets, and Play's Data
-  Safety form is a console declaration rather than a code property. The §4.7 audit above supplies
-  that form's likely content: no permissions, no network, no data leaving the device.
+  Safety form is a console declaration rather than a code property. The mobile-shell supplement
+  supplies that form's likely content: no permissions, no network, no data leaving the device.
 - **No store-submission readiness assessment yet** — see "Mobile Phase 6 — store-launch gate
   status" below for the full gate criteria and current disposition.
 
