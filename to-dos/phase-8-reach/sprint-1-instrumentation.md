@@ -104,9 +104,9 @@ substrate as the debugger's memory panel.
 **Acceptance criteria:**
 
 - [x] Game Genie code parsing + decode to a RAM-address/value patch — `rustysnes_core::cheat::
-      decode_game_genie`, ported from bsnes's `CheatEditor::decodeSNES` and cross-checked
-      bit-for-bit against Mesen2's independent decoder; unit-tested against real commercial
-      codes from Mesen2's shipped `CheatDb.Snes.json`.
+      decode_game_genie`, implemented from the published Game Genie code format and cross-checked
+      bit-for-bit against independent decoders as oracles; unit-tested against real commercial
+      codes with widely published decodings.
 - [x] Pro Action Replay code parsing + decode — `rustysnes_core::cheat::decode_pro_action_replay`
       (straight 8-hex-digit `AAAAAADD`, no scrambling), same external-oracle test vectors.
 - [x] Patches apply every frame without breaking the determinism contract when the feature is

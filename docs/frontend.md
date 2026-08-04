@@ -1096,8 +1096,8 @@ whenever P2 local keyboard play is wired.
 ### Peripherals (Mouse / Super Scope / Super Multitap) — `v0.9.0`
 
 The core (`rustysnes_core::controller`) implements the real 2-bit-per-clock (`data1`/`data2`)
-serial-shift-register protocol for all three, ported from ares' `sfc/controller/
-{mouse,super-scope,super-multitap}` — not stubs. `Bus::set_port_device` selects which peripheral
+serial-shift-register protocol for all three, implemented from the documented hardware — the
+mouse, Super Scope and Super Multitap are real models, not stubs. `Bus::set_port_device` selects which peripheral
 occupies a port (default: `Gamepad`, byte-identical to every prior release); `Bus::set_mouse`/
 `set_superscope`/`set_multitap_pad` feed host input once per frame, the same "always replace,
 re-synced once per frame" convention `set_joypad` already uses. Save-stated as real hardware

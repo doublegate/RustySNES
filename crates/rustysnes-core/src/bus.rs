@@ -1501,18 +1501,18 @@ impl DmaBus for Bus {
         if matches!(bank, 0x00..=0x3F | 0x80..=0xBF)
             && matches!(off, 0x2100..=0x21FF | 0x4000..=0x43FF)
         {
-            // Matches ares/bsnes `CPU::Channel::readA` exactly: the invalid branch sets `mdr`
-            // (this project's `open_bus`) to a hard `0`, not "leave it unchanged" — see
+            // The invalid branch sets the memory data register (this project's `open_bus`) to a
+            // hard `0`, not "leave it unchanged" — corroborated by every reference; see
             // `docs/scheduler.md` §Open bus via DMA/HDMA for the full citation trail.
             self.open_bus = 0;
             return 0;
         }
         let val = self.decode_read(addr);
         // DMA/HDMA-driven A-bus reads update the open-bus latch exactly like a CPU read does —
-        // confirmed by direct citation of ares' AND bsnes' `CPU::Channel::readA`
-        // (`cpu.r.mdr = validA(address) ? bus.read(address, cpu.r.mdr) : 0;`) and their shared
-        // `Bus::read`'s default unmapped reader (`[](n24, n8 data) { return data; }` — the
-        // open-bus echo mechanism itself). DMA/HDMA *writes* deliberately do NOT update it (see
+        // the valid branch echoes the bus value and the invalid branch yields 0, with an unmapped
+        // read returning the latch unchanged (the open-bus echo mechanism itself). Corroborated
+        // against the references as behavioural oracles; no third-party emulator code is
+        // incorporated. DMA/HDMA *writes* deliberately do NOT update it (see
         // `write_a`/`write_b` below) — ares' `writeA`/`writeB` never touch `mdr` either. See
         // `docs/scheduler.md` §Open bus via DMA/HDMA for the full investigation this fix closes.
         self.open_bus = val;

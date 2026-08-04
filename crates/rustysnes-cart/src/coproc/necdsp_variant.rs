@@ -24,9 +24,9 @@
 //! from their reference-pinned specs and confirmed live (`dsp3_st011_oncart`: the game reaches the
 //! register window, `host_accesses > 0`, deterministically):
 //!
-//!   - **DSP-3 (SD Gundam GX).** Window banks `$20–3F,$A0–BF` over the FULL `$8000–FFFF` (snes9x
-//!     `M_DSP3_LOROM`), generic low-bit split (even=DR, odd=SR — bsnes `NECDSP::read`/`write`
-//!     `addr & 1`), NOT DSP-4's half-boundary. It is "not simply DSP-2's" in the *window* (DSP-2 is
+//!   - **DSP-3 (SD Gundam GX).** Window banks `$20–3F,$A0–BF` over the FULL `$8000–FFFF` (the
+//!     board's mapping), generic low-bit split (even=DR, odd=SR on `addr & 1` — the uPD77C25's own
+//!     documented host interface), NOT DSP-4's half-boundary. It is "not simply DSP-2's" in the *window* (DSP-2 is
 //!     `$6000–6FFF + $8000–BFFF`), not the split. Same 7.6 MHz `Upd7725` rate. Detection is special:
 //!     the internal title is Shift-JIS (`SDｶﾞﾝﾀﾞﾑGX`), so the header's UTF-8 title decode is empty and
 //!     the string [`Variant::detect`] cannot see it — it is matched on the raw title bytes by

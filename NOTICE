@@ -1,5 +1,215 @@
 RustySNES
 Copyright (c) DoubleGate <parobek@gmail.com>
 
-Dual-licensed under MIT OR Apache-2.0.
-Vendored reference code (if any) retains its own license — see ref-proj/.
+Dual-licensed under MIT OR Apache-2.0. See LICENSE-MIT and LICENSE-APACHE.
+
+This NOTICE records where RustySNES's content comes from. It distinguishes three
+things that are easy to blur and must not be: hardware behaviour implemented from
+public documentation, third-party code actually incorporated (all of it
+permissively licensed), and reference emulators consulted only as behavioural
+oracles. See docs/originality-and-provenance.md for the full account.
+
+RustySNES is developed with substantial AI assistance. See the README and
+docs/originality-and-provenance.md.
+
+================================================================================
+1. HARDWARE DOCUMENTATION
+================================================================================
+
+The overwhelming majority of this codebase is an implementation of documented
+SNES / Super Famicom hardware behaviour, written from public references and
+pinned to public test ROMs. Hardware behaviour is factual: every accurate
+emulator converges on it. No code is incorporated from any of the following;
+they are documentation.
+
+  - fullsnes ("Nocash SNES Specs"), Martin Korth — the primary register,
+    memory-map, cartridge, coprocessor and cheat-device reference.
+    Local copy of the sections used: ref-docs/fullsnes/
+  - anomie's SNES documents (timing, PPU, SPC700, DMA/HDMA).
+  - undisbeliever's 65816 / SNES timing notes.
+  - The Western Design Center W65C816S datasheet (opcode set, addressing modes,
+    cycle counts; Table 5-4 is the source for the opcode-length sweep).
+  - The SNESdev / NESdev wiki and its community timing research.
+  - The published ARM architecture definition for the ARMv3 / ARM6 instruction
+    set used by the ST018 cartridge coprocessor.
+  - The published Game Genie and Pro Action Replay code formats.
+
+================================================================================
+2. REFERENCE EMULATORS (BEHAVIOURAL ORACLES ONLY -- NO CODE INCORPORATED)
+================================================================================
+
+RustySNES is cross-validated by running reference emulators and comparing
+observable behaviour: register reads, cycle counts, framebuffer hashes, and the
+pass/fail verdicts of the AccuracySNES test cartridge. That is oracle use.
+
+  NO SOURCE CODE FROM ANY GPL-LICENSED EMULATOR IS INCORPORATED INTO RUSTYSNES.
+
+  Reference    License                            Role
+  -----------  ---------------------------------  --------------------------
+  ares         ISC                                cross-validation reference;
+                                                  third battery reference as
+                                                  of v1.29.0
+  bsnes        GPLv3 (the emulator). Its libco /  oracle only
+               nall / ruby / hiro libraries are
+               ISC, but none are used here.
+  Mesen2       GPLv3                              oracle only
+  MesenCE      GPLv3                              oracle only; also the
+                                                  exact-frame oracle for the
+                                                  per-dot compositor
+  Snes9x       Custom, non-commercial -- NOT      oracle only; explicitly
+               redistributable or incorporable    do-not-incorporate
+
+Because ares is ISC-licensed and ISC asks that its copyright and permission
+notice appear in copies, its notice is reproduced below. This is deliberate
+belt-and-braces: RustySNES implements hardware behaviour rather than copying
+ares, but ares' model was studied closely for several coprocessors, and
+satisfying a permissive notice costs nothing while leaving no ambiguity.
+
+  ares
+  Copyright (c) 2004-2025 ares team, Near et al
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted, provided that the above
+  copyright notice and this permission notice appear in all copies.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+  SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+  OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+  CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Reference emulator source trees are NOT distributed with RustySNES. They live
+under ref-proj/, which is gitignored, and are cloned locally by a developer who
+wants to run the cross-validation.
+
+================================================================================
+3. INCORPORATED THIRD-PARTY COMPONENTS (PERMISSIVELY LICENSED)
+================================================================================
+
+rcheevos -- RetroAchievements client library
+  Version:   12.3.0
+  License:   MIT
+  Copyright: (c) 2018 RetroAchievements.org
+  Location:  crates/rustysnes-cheevos/vendor/rcheevos/ (license text at
+             crates/rustysnes-cheevos/vendor/rcheevos/LICENSE)
+  Notes:     Vendored C source, compiled by crates/rustysnes-cheevos/build.rs
+             into a static archive. Reached only through the frontend's opt-in
+             `retroachievements` feature; a default build links none of it.
+
+  MIT License
+
+  Copyright (c) 2018 RetroAchievements.org
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+Cargo dependencies are permissively licensed and enforced by deny.toml, whose
+allow-list admits no GPL, LGPL or AGPL crate. Run `cargo deny check licenses`
+to reproduce.
+
+================================================================================
+4. BUNDLED FONTS
+================================================================================
+
+The desktop and WebAssembly frontends use egui, whose `epaint_default_fonts`
+crate (v0.35.0) embeds the following fonts directly into the built binary. They
+ship inside every RustySNES frontend binary, so their licences travel with the
+distribution: the full texts are in LICENSES-THIRD-PARTY-FONTS.txt, which is
+packaged alongside the binary in every release archive.
+
+  Font                   License                     Copyright
+  ---------------------  --------------------------  -----------------------
+  Ubuntu-Light.ttf       Ubuntu Font Licence 1.0     Canonical Ltd.
+  NotoEmoji-Regular.ttf  SIL Open Font License 1.1   The Noto Project Authors
+  Hack-Regular.ttf       MIT (Hack); the underlying  Source Foundry Authors
+                         DejaVu work is public
+                         domain
+  emoji-icon-font.ttf    MIT                         (c) 2014 John Slegers
+
+The SIL Open Font License requires its text to accompany the font in any
+distribution, and the Ubuntu Font Licence requires the same. Releases before
+v1.31.0 shipped the binary without those texts; that gap is closed from v1.31.0
+onward.
+
+RustySNES's own icons and branding artwork (assets/RustySNES_Icon_Pack/) are
+this project's work and are covered by the project licence.
+
+================================================================================
+5. VISUAL INFLUENCES (INDEPENDENTLY REIMPLEMENTED -- NO CODE INCORPORATED)
+================================================================================
+
+The post-processing stack reproduces a visual *look*, which is not itself
+protectable; the shader code that produces it here is this project's own, written
+in WGSL as Rust string constants in crates/rustysnes-gfx-shaders/. No upstream
+shader source is incorporated, and no upstream shader is bundled.
+
+  - NTSC composite-artefact pass -- an RGB-domain approximation in the style of
+    EMMIR / LMP88959's NTSC-CRT (https://github.com/LMP88959/NTSC-CRT). It is
+    deliberately NOT the full technique: that encodes to a composite signal and
+    decodes back, which needs a palette-index framebuffer, and the SNES PPU emits
+    15-bit BGR555 direct colour. What is reproduced is the visible half -- chroma
+    smear and dot crawl. The source comment says so, and says why claiming more
+    would be dishonest.
+  - CRT pass -- scanlines, aperture mask, curvature, beam and glow, written from
+    the published description of how those artefacts arise on a shadow-mask CRT.
+
+RustySNES can additionally *load* user-supplied `.slangp` / `.cgp` shader presets
+and translate their GLSL to WGSL at runtime. That is file-format interoperability
+with content the user already has; no preset is bundled, and reading a format is
+not copying an implementation.
+
+================================================================================
+6. BUNDLED TEST ROMS
+================================================================================
+
+Every test ROM committed to this repository is permissively licensed and
+catalogued in tests/roms/LICENSES.md, which is the authoritative inventory.
+NO COMMERCIAL ROM IS COMMITTED TO THIS REPOSITORY, EVER. Commercial dumps and
+coprocessor firmware used for local validation live under a gitignored
+tests/roms/external/ and are never distributed; only derived screenshots and
+hashes are committed.
+
+  Corpus                         License      Copyright / notice preservation
+  -----------------------------  -----------  -------------------------------
+  AccuracySNES                   MIT OR       This project's own first-party
+  tests/roms/AccuracySNES/       Apache-2.0   test cartridge.
+  undisbeliever                  MIT and      (c) 2019 Marcus Rowe; the current
+  tests/roms/undisbeliever/      zlib         upstream repository is zlib,
+                                              (c) 2016 Marcus Rowe. Both texts
+                                              are committed alongside the ROMs.
+  gilyon                         MIT          (c) 2023 gilyon
+  tests/roms/gilyon/
+  spc700-singlestep              MIT          (c) 2024 SingleStepTests
+  tests/roms/spc700-singlestep/
+
+The MIT and zlib licences above require their notices to be preserved; each
+corpus directory carries its own LICENSE file for exactly that reason.
+
+================================================================================
+7. ACKNOWLEDGEMENTS
+================================================================================
+
+RustySNES exists because the SNES emulation community documented this hardware
+in public, in detail, for thirty years. Martin Korth, anomie, Marcus Rowe
+(undisbeliever), the ares and bsnes authors, the Mesen authors, the SNESdev wiki
+contributors, and the authors of every test ROM this project is measured against
+made an accurate independent implementation possible. Being able to check your
+work against theirs is the whole reason a project like this can claim accuracy at
+all.

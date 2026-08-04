@@ -26,11 +26,11 @@
 //! `Apu::advance_smp_cycle` releases exactly one SMP base clock from a recorded micro-op timeline),
 //! the **S-DSP is itself cycle-stepped** (32-step ares micro-sequence, one `Dsp::tick` per 2 SMP
 //! base clocks), the SPC700 timer is clocked in the correct phase (`RecordingSmpBus::write` advances
-//! the SMP timebase + clocks the three timers **before** the write side effect lands, matching ares
-//! `step()` / Mesen2 `Spc::Write` — `IncCycleCount` first; the Phase-3 timer-phase fix,
+//! the SMP timebase + clocks the three timers **before** the write side effect lands, which is the
+//! ordering every accurate reference converges on; the Phase-3 timer-phase fix,
 //! `docs/apu.md` §timer phase), and the S-DSP **GAIN mode-7 (bent increase) threshold** compares its
-//! internal envelope latch against `0x600` **unsigned** (matching blargg `SPC_DSP`
-//! `(unsigned) hidden_env` / ares `(u32) _envelope`; `docs/apu.md` §DSP GAIN mode-7 threshold).
+//! internal envelope latch against `0x600` **unsigned** — the comparison the hardware makes, and the
+//! one the references agree on (`docs/apu.md` §DSP GAIN mode-7 threshold).
 //!
 //! With those corrected, the decoded verdicts are:
 //!

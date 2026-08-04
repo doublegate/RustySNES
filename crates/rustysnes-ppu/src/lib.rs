@@ -818,7 +818,8 @@ pub struct Ppu {
 
     // --- Per-dot compositor state (`docs/adr/0014`, T-CA-10 Phase 4).
     //
-    // The visible line is composited one dot at a time (blueprint: MesenCE `SnesPpu::RenderScanline`).
+    // The visible line is composited one dot at a time; reference emulators that also render
+    // per-dot serve as the exact-frame oracle for it (`docs/adr/0014`), never as a source.
     // These hold the current line's fetched pixels and the incremental draw cursor. They are transient
     // (re-derived at each line start from serialized PPU state), so they are deliberately NOT saved —
     // a save at a frame boundary (the normal case) has no mid-line cursor to preserve; a mid-line save

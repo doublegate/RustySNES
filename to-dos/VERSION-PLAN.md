@@ -137,9 +137,9 @@ Closes Phase 7's exit criterion ("the full coprocessor/board matrix in `docs/STA
       the CPU eventually `RTI`s from genuine PROM code into a WRAM address confirmed entirely
       unpopulated — but not fixed; needs a proper disassembler + symbol trace, out of scope for
       this pass. See `docs/cart.md` §SPC7110 / `docs/STATUS.md` for the full diagnostic trail.
-- [x] **ST018** (ARMv3 LLE) — a full ARMv3 (ARM6-class) CPU core, clean-room ported from Mesen2's
-      `ArmV3Cpu` (barrel shifter/ALU, mode-banked register file, 3-stage pipeline, the complete
-      instruction set) + `St018Board` (firmware loading, the `$3800`/`$3802`/`$3804` handshake,
+- [x] **ST018** (ARMv3 LLE) — a full ARMv3 (ARM6-class) CPU core, implemented from the published
+      ARM architecture definition with reference emulators as oracles only (barrel shifter/ALU,
+      mode-banked register file, 3-stage pipeline, the complete instruction set) + `St018Board` (firmware loading, the `$3800`/`$3802`/`$3804` handshake,
       driven by `Board::coprocessor_tick` rather than the SA-1 second-CPU hooks since this core
       is self-contained in `rustysnes-cart`). Detected via title match on the confirmed real
       cart, Hayazashi Nidan Morita Shogi 2 (an earlier investigation wrongly assumed Star Ocean).

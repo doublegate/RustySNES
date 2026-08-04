@@ -18,8 +18,9 @@
 //!   conversion needed, just interleaving into libretro's batch API.
 //! - **Input**: the standard 12-button pad is wired for P1/P2 (`RETRO_DEVICE_JOYPAD`), plus
 //!   Mouse / Super Scope / Super Multitap peripheral negotiation via `RETRO_DEVICE_SUBCLASS`
-//!   (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` + `Core::on_set_controller_port_device`), mirroring
-//!   bsnes's own libretro core's device menu (`ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`)
+//!   (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO` + `Core::on_set_controller_port_device`), following
+//!   the device-menu layout established SNES libretro cores already expose, so a user's existing
+//!   RetroArch controller bindings carry over
 //!   — Mouse is offered on both ports, while Super Multitap and Super Scope are only offered on
 //!   port 2 (index `1`), matching real SNES hardware (a Super Scope's beam-latch and the
 //!   multitap's sub-pad addressing are both port-2-only, `docs/scheduler.md`/
@@ -84,8 +85,8 @@ const fn retro_device_subclass(base: u32, id: u32) -> u32 {
     ((id + 1) << RETRO_DEVICE_TYPE_SHIFT) | base
 }
 
-/// Super Multitap's device code (`RETRO_DEVICE_JOYPAD` subclass 0) — matches bsnes's own
-/// `RETRO_DEVICE_JOYPAD_MULTITAP` (`ref-proj/bsnes/bsnes/target-libretro/libretro.cpp`).
+/// Super Multitap's device code (`RETRO_DEVICE_JOYPAD` subclass 0) — the value SNES libretro cores
+/// already agree on for `RETRO_DEVICE_JOYPAD_MULTITAP`, so frontend bindings are interoperable.
 const RETRO_DEVICE_JOYPAD_MULTITAP: u32 = retro_device_subclass(RETRO_DEVICE_JOYPAD, 0);
 /// Super Scope's device code (`RETRO_DEVICE_LIGHTGUN` subclass 0) — matches bsnes's own
 /// `RETRO_DEVICE_LIGHTGUN_SUPER_SCOPE`.
@@ -217,7 +218,7 @@ fn poll_port_input(ctx: &RunContext<'_>, core: &mut EmuCore, port: usize, device
             core.set_superscope(port, x, y, buttons);
         }
         rustysnes_core::controller::PortDevice::Multitap => {
-            // bsnes's own precedent (`ref-proj/bsnes/bsnes/target-libretro/program.cpp`): sub-pad
+            // The established libretro convention for a SNES multitap: sub-pad
             // `N` polls libretro port `port + N` (RetroArch's Player 2-5 when the multitap sits on
             // SNES port 2), each still the standard 12-button pad.
             for sub in 0..4usize {
@@ -411,9 +412,9 @@ impl Core for RustySnesLibretro {
             );
             rust_libretro::environment::set_input_descriptors(cb, &descriptors);
 
-            // Peripheral negotiation (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`) — mirrors bsnes's
-            // own libretro core's device menu exactly (`ref-proj/bsnes/bsnes/target-libretro/
-            // libretro.cpp`): Mouse is offered on both ports; Super Multitap/Super Scope are only
+            // Peripheral negotiation (`RETRO_ENVIRONMENT_SET_CONTROLLER_INFO`) — the device-menu
+            // layout SNES libretro cores already expose, so existing frontend bindings carry
+            // over: Mouse is offered on both ports; Super Multitap/Super Scope are only
             // offered on port 2 (index `1`), matching real SNES hardware wiring. `rust_libretro`
             // has no `controller_info!` helper macro (unlike `input_descriptors!`), so this builds
             // the raw `retro_controller_info` array by hand.

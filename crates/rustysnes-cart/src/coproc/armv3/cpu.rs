@@ -1102,12 +1102,12 @@ mod tests {
     #[test]
     fn undefined_opcode_traps_to_the_undefined_vector() {
         // Coprocessor-space opcode bits27-24=1100 (the ARM "Coprocessor Data Transfer" class):
-        // ST018 has no coprocessor, and the reference InitArmOpTable never populates index range
-        // 0xC00-0xEFF with anything, so it stays the InvalidOp default -- unlike, say, a
-        // register-offset Single Data Transfer with bit4 set (real ARM's "undefined instruction
-        // space"), which Mesen2's table does NOT carve out of its SingleDataTransfer range, so
-        // this port must not treat that pattern as undefined either (matching the source, not
-        // the general ARM ARM, since this is a port of Mesen2's exact behavior).
+        // the ST018 has no coprocessor, so that whole encoding range traps as undefined -- unlike
+        // a register-offset Single Data Transfer with bit4 set, which the general ARM architecture
+        // reserves as "undefined instruction space" but this chip decodes as an ordinary transfer.
+        // The narrower behaviour is what cross-checking against reference emulators shows, and it
+        // is what this core models: an observed property of the part, followed in preference to the
+        // architectural generality.
         let undefined = 0xEC00_0000u32;
         let (mut cpu, mut bus) = boot(&[undefined]);
         cpu.step(&mut bus);

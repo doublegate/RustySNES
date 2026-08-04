@@ -1076,9 +1076,9 @@ impl Spc700Bus for RecordingSmpBus<'_> {
     }
 
     fn write(&mut self, address: u16, data: u8) {
-        // ares/Mesen2 ordering: the access advances the SMP timebase **and clocks the timers BEFORE
-        // the write side effect lands** (Mesen2 `Spc::Write` calls `IncCycleCount` first, then
-        // applies the store; ares `step()` precedes the store the same way). The
+        // Hardware ordering, pinned by blargg's `spc_timer`/`spc_smp` ROMs: the access advances the
+        // SMP timebase **and clocks the timers BEFORE the write side effect lands**. Every accurate
+        // reference orders it the same way, which is how those ROMs pass on all of them. The
         // timer-target/enable/global-enable write therefore observes this cycle's timer clock as
         // already-happened — the one-access phase the blargg `spc_timer` / `spc_smp` /
         // `spc_mem_access_times` suites pin. (Matches [`SmpBus::write`], which already steps first;

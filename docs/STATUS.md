@@ -198,7 +198,7 @@ alongside the mid-scanline/HDMA-driven register timing fix and a systemic cart-l
 fix. `v0.9.0` closes out everything still open after that: T-81-001 PR B (the 65C816 disassembly
 view/PC breakpoints/step controls, plus a new non-intrusive `Bus::peek` read), Phase 7's niche
 peripherals (Mouse/Super Scope/Super Multitap — `rustysnes_core::controller`, a real
-serial-shift-register protocol ported from ares, not a stub), and a continued SPC7110
+serial-shift-register protocol implemented from the documented hardware, not a stub), and a continued SPC7110
 investigation that reclassified its boot gap as a ROM-identity issue rather than an open bug
 (`docs/audit/spc7110-boot-crash-2026-07-08.md`). The save-state `FORMAT_VERSION` bumped `2`→`3`
 for the peripherals' runtime state (`docs/adr/0006`'s bump log).

@@ -86,7 +86,7 @@ building toward the same modern-feature breadth as its sibling project
 | **WebAssembly Build** | The SAME `App`/egui shell as native (`wasm-winit`), deployed live at the hosted demo, plus a lighter canvas-2D fallback (`wasm-canvas`), a PWA/offline service worker, and a `<5 MiB` gzip size-budget CI gate |
 | **Save States** | A quick-save slot plus a disk-backed, thumbnail-previewed **10-slot manager**, keyed per-ROM by SHA-256, on a versioned deterministic snapshot envelope |
 | **Rewind / Run-Ahead** | A bounded ring buffer of full snapshots + an N-frame peek-and-discard run-ahead, both config-driven and off by default |
-| **Peripherals** | Mouse / Super Scope / Super Multitap — the real 2-bit-per-clock serial-shift-register protocol, ported from ares, not a stub |
+| **Peripherals** | Mouse / Super Scope / Super Multitap — the real 2-bit-per-clock serial-shift-register protocol implemented from the documented hardware, not a stub |
 | **Lua Scripting + TAS** | A sandboxed Lua 5.4 (`mlua`) engine with full-bus reads / WRAM writes + per-frame callbacks, and a deterministic TAS movie record/playback format |
 | **Cheats** | Game Genie / Pro Action Replay codes, applied as a `Bus` read intercept (not a WRAM poke, since real codes target cartridge ROM) |
 | **Rollback Netplay** | GGPO-style 2-player rollback over native UDP, proven bit-identical resimulation under adverse network conditions; a WebRTC transport exists at the crate level |
@@ -215,7 +215,7 @@ frames spanning every LoROM/HiROM × coprocessor combination in the local ROM co
   PNG decoder, and a CPU compositor wired into the live `wgpu` present path at a fixed 2x upscale.
   See [`docs/adr/0010`](docs/adr/0010-hd-texture-pack-system.md).
 - **Peripherals** — Mouse, Super Scope, and Super Multitap, implemented as the real 2-bit-per-clock
-  serial-shift-register protocol (ported from ares), including WRIO IOBIT plumbing and the Super
+  serial-shift-register protocol (implemented from the documented hardware), including WRIO IOBIT plumbing and the Super
   Scope's PPU H/V-counter beam latch — not stubs.
 - **Libretro core** — `rustysnes-libretro` wraps the same deterministic core as a RetroArch-loadable
   shared library: region-aware NTSC/PAL geometry + timing, cheat support, coprocessor-firmware
@@ -780,22 +780,63 @@ RustySNES is dual-licensed under your choice of:
 
 Unless you state otherwise, any contribution you submit is dual-licensed as above.
 
-**Test ROMs** under `tests/roms/` are individually CC0, MIT, or Zlib licensed. **No commercial
-Nintendo ROMs are included, and they will never be bundled** — dumps used for coprocessor
-validation are the user's responsibility and must come from cartridges they legally own
+**Test ROMs** under `tests/roms/` are MIT, zlib, or (for this project's own AccuracySNES cartridge)
+MIT OR Apache-2.0. Every corpus carries its upstream `LICENSE` file, and the authoritative
+per-corpus inventory — with counts derived from `git ls-files` — is
+[`tests/roms/LICENSES.md`](tests/roms/LICENSES.md). **No commercial ROMs are included, and they will
+never be bundled** — dumps used for coprocessor validation are the user's responsibility and must
+come from cartridges they legally own
 ([`docs/adr/0003`](docs/adr/0003-accuracy-tiering-honesty-gate.md)).
+
+**Provenance and attribution.** [`NOTICE`](NOTICE) is the formal record of what is implemented from
+hardware documentation, what third-party code is actually incorporated (all permissively licensed),
+and which reference emulators were consulted **as behavioural oracles only**. No source code from
+any GPL-licensed emulator is incorporated into RustySNES. The full reasoning, including where this
+project's own comments previously described that relationship wrongly, is in
+[`docs/originality-and-provenance.md`](docs/originality-and-provenance.md).
+
+**Bundled fonts.** The desktop and web frontends embed egui's default fonts (Ubuntu-Light,
+NotoEmoji, Hack, emoji-icon-font). Their licences ship with every release in
+[`LICENSES-THIRD-PARTY-FONTS.txt`](LICENSES-THIRD-PARTY-FONTS.txt).
+
+### AI-assistance disclosure
+
+**RustySNES is developed with substantial AI assistance.** The architecture, accuracy methodology,
+and engineering judgement are the maintainer's; a large fraction of the code and documentation is
+written by an AI coding agent working under that direction. The repository's own history makes the
+pace plain — first commit `2026-06-25`, and roughly 120,000 lines of Rust across ~480 commits within
+about six weeks — and it is disclosed here rather than left for a reader to infer.
+
+This does not change how the project's accuracy claims should be judged, because those claims are
+deliberately built to be checkable without trusting the author: an on-cart battery that scores
+itself, three independent reference emulators, and a coverage report regenerated with the artefact
+it describes. See [`docs/originality-and-provenance.md`](docs/originality-and-provenance.md).
 
 ---
 
 ## Acknowledgments
 
-RustySNES stands on the shoulders of giants:
+RustySNES stands on the shoulders of giants. This section mirrors [`NOTICE`](NOTICE); where the two
+could ever disagree, `NOTICE` governs.
 
+**Hardware documentation** — the sources this emulator is actually implemented *from*:
+
+- **fullsnes** ("Nocash SNES Specs") by **Martin Korth**, the primary register, memory-map,
+  cartridge, coprocessor and cheat-device reference.
+- **anomie's SNES documents** (timing, PPU, SPC700, DMA/HDMA), and **undisbeliever's** 65816/SNES
+  timing notes.
+- The **Western Design Center W65C816S** datasheet.
 - The **[SNESdev wiki](https://snes.nesdev.org/wiki/)** and **[Nesdev wiki](https://www.nesdev.org/wiki/)**
   communities for decades of hardware documentation and forum research.
-- **[Mesen2](https://github.com/SourMesen/Mesen2)**, **[higan](https://github.com/higan-emu/higan)**,
-  and **[ares](https://github.com/ares-emulator/ares)** as the accuracy reference bar and trace
-  oracles.
+
+**Reference emulators — behavioural oracles only; no code incorporated:**
+
+- **[ares](https://github.com/ares-emulator/ares)** (ISC), **[bsnes](https://github.com/bsnes-emu/bsnes)**
+  and **[higan](https://github.com/higan-emu/higan)** (GPLv3), **[Mesen2](https://github.com/SourMesen/Mesen2)**
+  and MesenCE (GPLv3), and **[Snes9x](https://github.com/snes9xgit/snes9x)** (custom
+  non-commercial). These are run to cross-check observable behaviour — register reads, cycle counts,
+  framebuffer hashes, on-cart verdicts. Being able to check your work against theirs is why an
+  independent implementation can claim accuracy at all.
 - **[RustyNES](https://github.com/doublegate/RustyNES)**, this project's own predecessor, for the
   Bus-owns-everything architecture, the frontend shell, the `cargo full-build`/CLI conventions,
   and the CI/docs-site infrastructure pattern ported here.
@@ -818,7 +859,7 @@ If you use RustySNES in academic research, please cite:
   author  = {RustySNES Contributors},
   title   = {RustySNES: A Cycle-Accurate SNES Emulator in Rust},
   year    = {2026},
-  version = {1.8.0},
+  version = {1.30.0},
   url     = {https://github.com/doublegate/RustySNES},
   note    = {Cycle-accurate SNES/Super Famicom emulator on a master-clock-precise scheduler;
              65C816 and SPC700 both 0-diff against their per-opcode oracles; AccuracySNES,

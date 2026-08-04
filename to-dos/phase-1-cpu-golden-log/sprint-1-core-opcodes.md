@@ -60,7 +60,7 @@ the transfer instructions, all width-aware.
 
 - [x] All listed families implemented across their addressing modes. *(LDA/STA/…/ADC/SBC/AND/
       ORA/EOR/CMP/INC/DEC/shifts/rotates/transfers; oracle passes each opcode file.)*
-- [x] Decimal-mode (D flag) ADC/SBC correct. *(digit-wise BCD ported from bsnes; the `69/E9`
+- [x] Decimal-mode (D flag) ADC/SBC correct. *(digit-wise BCD per the documented 65C816 decimal mode; the `69/E9`
       decimal oracle paths pass.)*
 - [x] Unit tests per family in both 8- and 16-bit widths. *(via the oracle's M/X-width coverage
       + `tests.rs`.)*

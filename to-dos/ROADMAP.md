@@ -20,7 +20,7 @@ record; this file frames the phase line.
   corpus, see `docs/rom-test-corpus.md`); ExLoROM is implemented (decode formula sourced from
   bsnes's own runtime board database; no golden-ROM-boot proof — no ExLoROM ROM in the local
   corpus). **Niche peripherals (multitap, mouse, Super Scope) core is now complete, `v0.9.0`** —
-  the real serial-shift-register protocol, ported from ares (`rustysnes_core::controller`),
+  the real serial-shift-register protocol, implemented from the documented hardware (`rustysnes_core::controller`),
   closing what was Phase 7's one open exit criterion; frontend host-input capture (a real mouse
   pointer, extra gamepads) remains a separate, tracked follow-up outside Phase 7's own scope
   (`docs/frontend.md` §Peripherals). Phase 5 (frontend)
@@ -214,7 +214,7 @@ commercial dump available); PAL region auto-detection and ExLoROM are both imple
 a documented, honest validation gap — no PAL ROM and no ExLoROM ROM exist in the local corpus, so
 neither has golden-framebuffer proof; `docs/rom-test-corpus.md` tracks exactly what would close
 this). **Niche peripherals (multitap, mouse, Super Scope) core is now complete, `v0.9.0`** — the
-real serial-shift-register protocol, ported from ares (`rustysnes_core::controller`); frontend
+real serial-shift-register protocol, implemented from the documented hardware (`rustysnes_core::controller`); frontend
 host-input capture (a real mouse pointer, extra gamepads) remains a separate, tracked follow-up
 (`docs/frontend.md` §Peripherals), not part of this phase's own exit criteria.
 **Release mapping:** the done work shipped inside `v0.1.0`; PAL auto-detect and ExLoROM landed

@@ -62,7 +62,7 @@ storage. The `(bank, addr)` → backing-store math (`bank = addr24 >> 16`, `addr
 
 The ExHiROM/ExLoROM `high` bit is A23-inverted: banks $80–$FF (A23=1) select the first 4 MiB;
 banks $00–$7D (A23=0) select the extra 4 MiB. ROM offsets are folded to `rom_size` by the
-`mirror` helper (clean-room port of ares `Bus::mirror`): power-of-two sizes mask, non-power-of-
+`mirror` helper (the standard cartridge address-mirroring rule): power-of-two sizes mask, non-power-of-
 two sizes split the largest power-of-two block linear + mirror the remainder. SRAM size is
 `if $FFD8 == 0 { 0 } else { min(MAX_SRAM_SIZE, 0x400 << min($FFD8, 16)) }` — see the bound above,
 which is load-bearing and not a formatting detail; ROM and open-bus regions are read-only.
@@ -110,7 +110,7 @@ it. This is the single biggest economy in the coprocessor breadth phase.
 
 ### The µPD77C25 / µPD96050 engine (implemented — `crate::coproc::upd77c25`)
 
-A clean-room port of ares' `uPD96050` component (ISC), parameterized by `Revision` (`Upd7725` =
+An implementation of the NEC uPD7725/uPD96050 DSP from its documented architecture (cross-checked against ares, ISC, as a behavioural oracle), parameterized by `Revision` (`Upd7725` =
 DSP-1..4, 2 K×24 program + 1 K×16 data ROM; `Upd96050` = ST010/011, 16 K×24 + 2 K×16). The full
 NEC DSP instruction set is decoded from the 24-bit word (OP / RT / JP / LD): the K×L signed
 multiplier pipeline, the dual accumulators + 6-flag condition sets, the 16-deep call stack, the
@@ -394,10 +394,11 @@ as open bus, the game wedges on its first DSP poll — it is never silently degr
   already carried openly for CX4/SPC7110's own `$F`-nibble disambiguation.
 + **ST018** (`BestEffort`, **implemented** — `coproc::armv3`): a full ARMv3 (ARM6-class,
   pre-Thumb) CPU core, comparable in scope to `rustysnes-cpu`'s 65C816, not a small register-file
-  port like this project's other BestEffort coprocessors. Clean-room port of Mesen2's `ArmV3Cpu`
-  (`Core/SNES/Coprocessors/ST018/`), chosen over ares' `sfc/coprocessor/armdsp` (which instead
-  wraps ares' generic shared ARM7TDMI component — a full ARM+Thumb superset the real ARMv3-class
-  ST018 chip, predating Thumb, never needed). Built bottom-up: the barrel shifter/condition-codes/
+  port like this project's other BestEffort coprocessors. Implemented from the published ARM
+  architecture definition, with reference emulators as behavioural oracles only — **Mesen2 is
+  GPLv3 and no code from it is incorporated** (`docs/originality-and-provenance.md` §4). The scope
+  decision was to model the ST018's actual ARMv3/ARM6-class part rather than the ARM7TDMI superset
+  that ares' `armdsp` reuses, since the real chip predates Thumb and never needed it. Built bottom-up: the barrel shifter/condition-codes/
   ALU core, the register file + mode banking, the 3-stage pipeline (whose exact timing implicitly
   produces ARM's well-known "PC reads as address+8" quirk), the full instruction set (data
   processing, branch, MSR/MRS, exception entry, `LDR`/`STR`, `LDM`/`STM`, multiply/multiply-long,

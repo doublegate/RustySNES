@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Provenance, licensing and attribution pass — the written record now matches what the code
+  actually is. Zero emulation-core behaviour change.** Run against `docs/provenance.md`'s playbook.
+  Across 13 changed source files the **only** non-comment edit is one test *rename*; every other
+  source change is a comment. The AccuracySNES battery and every golden are unmoved, by
+  construction.
+
+  **The licence annotation that was simply false.** `coproc/armv3/mod.rs` described the ST018 core
+  as a *"Clean-room port of Mesen2's `ArmV3Cpu` (**MIT**…)"*. **Mesen2 is GPLv3** — verified against
+  its own `LICENSE` and README, not assumed. "Clean-room port" is also self-contradictory. What the
+  code actually is was established by inspection rather than by preference: the instruction
+  decomposition matches because those are *ARM's own* instruction-class names; where implementations
+  genuinely diverge ours does (multiply cycles implement the documented early-termination rule
+  directly, where the reference delegates to another console's helper; the board steps per master
+  tick rather than in a per-access burst); and **none of the reference's distinctive marginalia
+  appears in our source** — a transcription carries the original's "why" comments. So it is
+  hardware-documentation work that had been *described* as a port. The residual uncertainty is
+  recorded rather than resolved favourably: this sampled the module, it did not line-by-line
+  re-derive all ~3,000 lines.
+
+  **Copyleft citations removed throughout.** Every `ref-proj/` source-file path into bsnes / Mesen2 /
+  MesenCE (10 sites) and every private-symbol cross-reference into them (29 sites, 20 in the ST018
+  board alone) are gone, replaced by the documented hardware source plus an explicit oracle
+  disclaimer. 15 further "ported from" claims were corrected across README, `docs/` and `to-dos/`.
+  Two claims naming **bsnes**, which is GPLv3, were the sharpest: the Game Genie decoder and the
+  CPU's direct-page arithmetic — both **publicly documented formats and addressing rules**, the
+  first confirmed against the published Game Genie code-format notes rather than assumed.
+
+  **`NOTICE` rewritten from five lines to a full record** — hardware documentation, reference
+  emulators *with their licences* and the flat statement that no GPL emulator's code is
+  incorporated, incorporated permissive components, bundled fonts, visual influences, and test ROMs.
+  The old text pointed at `ref-proj/` for "vendored reference code", which is doubly wrong: that
+  tree is gitignored and never distributed, while the tree that genuinely *is* vendored — `rcheevos`
+  12.3.0 (MIT) — went unmentioned. ares' ISC notice is now reproduced deliberately, as
+  belt-and-braces.
+
+  **A real compliance gap closed.** egui's `epaint_default_fonts` embeds Ubuntu-Light, NotoEmoji,
+  Hack and emoji-icon-font **into the binary**. OFL-1.1 and the Ubuntu Font Licence both require
+  their text to accompany the font wherever it is distributed — and every release archive shipped
+  the binary with `README`, `LICENSE-MIT` and `LICENSE-APACHE` and **none of those font licences**.
+  New `LICENSES-THIRD-PARTY-FONTS.txt` now ships in every release archive (both packaging steps) and
+  is copied into the wasm dist, because a hosted wasm build is a distribution too.
+
+  **Two documents that did not exist.** `tests/roms/LICENSES.md` — the authoritative per-corpus
+  inventory, every count derived from `git ls-files` rather than `find` so the gitignored
+  `external/` tree cannot inflate it. And `docs/originality-and-provenance.md` — the independence
+  account, including an **AI-assistance disclosure** and an explicit *not a superiority claim* note.
+
+  **README corrections.** An AI-assistance disclosure; a false licence claim fixed (test ROMs were
+  described as "CC0, MIT, or Zlib" — there is **no CC0 corpus**; they are MIT, zlib, and this
+  project's own MIT-OR-Apache-2.0); Acknowledgments synced to `NOTICE` and now crediting the sources
+  this emulator is actually implemented *from* (fullsnes/Martin Korth, anomie, undisbeliever, the
+  WDC datasheet) rather than only the emulators it is checked against; and a stale BibTeX citation
+  moved `1.8.0` → `1.30.0`.
+
 ## [1.30.0] "Threshold" - 2026-08-03
 
 ### Added

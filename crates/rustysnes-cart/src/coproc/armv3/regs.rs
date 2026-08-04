@@ -1,7 +1,9 @@
 //! The ARM register file (with mode banking) and the 3-stage instruction pipeline.
 //!
-//! Clean-room port of the relevant pieces of Mesen2's `ArmV3Cpu`/`ArmV3CpuState` (see the parent
-//! module doc). This is step 2+3 of the build order in `docs/st018-arm-notes.md`: register
+//! Register banking and the prefetch pipeline are part of the published ARM architecture; both are
+//! implemented from that documentation, with reference emulators used only as behavioural oracles
+//! (see the parent module doc). This is step 2+3 of the build order in `docs/st018-arm-notes.md`:
+//! register
 //! banking and the pipeline's implicit "PC reads as address+8" timing, both landed before any
 //! instruction decode/execute exists (nothing here depends on it, and the pipeline model is the
 //! single highest-risk fidelity point every later instruction depends on getting right).

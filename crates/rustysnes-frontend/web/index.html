@@ -19,6 +19,11 @@
     <link data-trunk rel="copy-file" href="icon.svg" />
     <link data-trunk rel="copy-file" href="manifest.webmanifest" />
     <link data-trunk rel="copy-file" href="sw.js" />
+<!-- The wasm binary embeds egui's default fonts (Ubuntu-Light, NotoEmoji, Hack,
+     emoji-icon-font). OFL-1.1 and the Ubuntu Font Licence both require their text to
+     accompany the font wherever it is distributed, and a hosted wasm build IS a
+     distribution -- so the licence file ships next to it. See NOTICE section 4. -->
+<link data-trunk rel="copy-file" href="../../../LICENSES-THIRD-PARTY-FONTS.txt" />
     <style>
         html, body { margin: 0; height: 100%; background: #101014; color: #e0e0e0;
             font-family: system-ui, sans-serif; }

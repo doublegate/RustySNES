@@ -3,10 +3,10 @@
 //! The one confirmed commercial cart is *Hayazashi Nidan Morita Shogi 2* (SETA, 1995,
 //! Japan-only; internal title `NIDAN MORITASHOGI2`) — a LoROM cart (512 KiB ROM + 8 KiB
 //! battery-backed SRAM) using the chip's ARM core to strengthen its shogi AI. Confirmed against
-//! two independent sources: Mesen2's own header detection (`BaseCartridge::GetCoprocessorType`,
-//! `RomType` high nibble `$F` + `CartridgeType == 0x02`) and ares' heuristic detector
-//! (`mia/medium/super-famicom.cpp`, the identical `cartridgeTypeHi==0xf && cartridgeSubType==2`
-//! signature at the extended-header byte `$xFBF`) — see `docs/st018-arm-notes.md` for the full
+//! two independent references, which agree on the same header signature: `RomType` high nibble
+//! `$F` together with `CartridgeType == 0x02` at the extended-header byte `$xFBF`. That signature
+//! is a property of the cartridge header, corroborated by cross-checking rather than taken from
+//! anyone's source — see `docs/st018-arm-notes.md` for the full
 //! research trail, including the earlier (wrong) assumption that this chip was Star Ocean's
 //! (Star Ocean uses S-DD1 only; no ARM coprocessor). This project's own [`crate::header`]
 //! parser doesn't read `$xFBF` for the OTHER `$F`-nibble customs (CX4/SPC7110/S-RTC all resolve
@@ -15,12 +15,13 @@
 //! mirrors that same title-match convention here rather than introducing a new header field this
 //! codebase has otherwise deliberately chosen not to trust.
 //!
-//! Board/bus protocol ported from Mesen2's `St018` (`Core/SNES/Coprocessors/ST018/St018.cpp`),
-//! architecturally an SA-1-style deterministic master-clock catch-up (`Run()`, called before
-//! every register access and at end-of-frame in the reference; here driven every single master
-//! tick by [`Board::coprocessor_tick`] instead — strictly more granular, functionally
-//! equivalent, and avoids needing any `rustysnes-core`-side plumbing since — unlike SA-1's
-//! second 65C816 — this ARM core is entirely self-contained within `rustysnes-cart` already).
+//! The board's register map and handshake are properties of the cartridge hardware, documented in
+//! `docs/st018-arm-notes.md` and cross-checked against reference emulators as behavioural oracles;
+//! no third-party emulator code is incorporated. The *scheduling model here is this project's own*
+//! and deliberately differs from the references, which run the ARM in a catch-up burst before each
+//! register access and at end-of-frame: [`Board::coprocessor_tick`] steps it every single master
+//! tick instead — strictly more granular, and it needs no `rustysnes-core`-side plumbing, since
+//! (unlike SA-1's second 65C816) this ARM core is entirely self-contained within `rustysnes-cart`.
 //! SNES-side register window `$00-3F,$80-BF:$3000-$3FFF` (the whole block, not just
 //! `$3800-38FF` as `boards.bml` implies at a glance): `$3800` (read: pull one byte the ARM
 //! placed for the SNES), `$3802` (write: push one byte to the ARM; read: clear the ack flag),
@@ -31,7 +32,7 @@
 //! `docs/st018-arm-notes.md`) — never bundled, user-supplied only (`docs/adr/0003`).
 
 // Chip-name jargon (ST018, ARMv3, ...) is not Rust code. The handshake state is a fixed set of
-// independent hardware flags (Mesen2 `St018State`), not a state-machine candidate for an enum.
+// independent hardware flags, not a state-machine candidate for an enum.
 #![allow(clippy::doc_markdown, clippy::struct_excessive_bools)]
 
 use alloc::boxed::Box;
@@ -42,19 +43,18 @@ use rustysnes_savestate::{SaveReader, SaveStateError, SaveWriter};
 use crate::board::{Board, Coprocessor, MappedAddr};
 use crate::coproc::armv3::{ArmBus, Cpu};
 
-/// ARM-side PRG ROM size (Mesen2 `St018::PrgRomSize`).
+/// ARM-side PRG ROM size (`docs/st018-arm-notes.md`).
 const PRG_ROM_SIZE: usize = 0x2_0000;
-/// ARM-side data ROM size (Mesen2 `St018::DataRomSize`).
+/// ARM-side data ROM size (`docs/st018-arm-notes.md`).
 const DATA_ROM_SIZE: usize = 0x8000;
-/// ARM-side work RAM size (Mesen2 `St018::WorkRamSize`).
+/// ARM-side work RAM size (`docs/st018-arm-notes.md`).
 const WORK_RAM_SIZE: usize = 0x4000;
 /// The single combined firmware dump this board accepts (PRG ROM immediately followed by data
-/// ROM — Mesen2 `FirmwareHelper::LoadSt018Firmware` splits the same way).
+/// ROM — the split every implementation of this chip makes at the same offset).
 const FIRMWARE_SIZE: usize = PRG_ROM_SIZE + DATA_ROM_SIZE;
 
 /// Bridges [`Cpu::step`]'s [`ArmBus`] calls to the board's ROM/RAM/handshake state, charging one
-/// cycle per byte lane touched (Mesen2 `ProcessIdleCycle`/the implicit per-byte-lane cost inside
-/// `Read`/`Write` — `docs/st018-arm-notes.md`'s board-bus-protocol section). A short-lived
+/// cycle per byte lane touched (`docs/st018-arm-notes.md`'s board-bus-protocol section). A short-lived
 /// borrow, not stored: [`St018Board::coprocessor_tick`] takes `self.cpu` out via
 /// `core::mem::take` before constructing this (mirroring `rustysnes-core`'s SA-1 catch-up's
 /// `Option::take`), so the adapter can freely borrow every OTHER field of the board.
@@ -94,8 +94,8 @@ impl ArmBus for St018Bus<'_> {
     }
 }
 
-/// Classify a 24-bit CPU address into the SNES-side handshake window (Mesen2 `St018::Read`/
-/// `Write`'s `addr & 0xFF06` dispatch over the registered `$3000-$3FFF` block).
+/// Classify a 24-bit CPU address into the SNES-side handshake window: an `addr & 0xFF06` dispatch
+/// over the registered `$3000-$3FFF` block (`docs/st018-arm-notes.md`).
 #[allow(clippy::cast_possible_truncation)] // `addr & 0xFF06` is always <= 0xFFFF.
 fn classify(addr24: u32) -> Option<u16> {
     let bank = (addr24 >> 16) & 0xFF;
@@ -114,7 +114,7 @@ pub struct St018Board {
     work_ram: Box<[u8]>,
     firmware_loaded: bool,
 
-    // SNES<->ARM handshake (Mesen2 `St018State`).
+    // SNES<->ARM handshake, per `docs/st018-arm-notes.md`.
     has_data_for_snes: bool,
     data_snes: u8,
     ack: bool,
@@ -123,11 +123,10 @@ pub struct St018Board {
     arm_reset: bool,
 
     /// The ARM's own catch-up target, incremented by one on every [`Board::coprocessor_tick`]
-    /// call — mathematically equivalent to Mesen2's `_memoryManager->GetMasterClock()` (both
-    /// start at 0 and advance 1:1 with the master clock), just accumulated locally instead of
-    /// read from a shared clock each time.
+    /// call — equivalent to sampling a shared master clock (both start at 0 and advance 1:1 with it),
+    /// just accumulated locally instead of read from a shared clock each time.
     target_cycle: u64,
-    /// The ARM's own elapsed-cycle counter (Mesen2 `ArmV3CpuState::CycleCount`), advanced by
+    /// The ARM's own elapsed-cycle counter, advanced by
     /// [`St018Bus`] on every bus access/idle cycle.
     arm_cycle_count: u64,
 }
@@ -169,7 +168,7 @@ impl St018Board {
         board
     }
 
-    /// Power on the ARM core, re-priming its pipeline (Mesen2 `PowerOn(forReset=false)`, used at
+    /// Power on the ARM core, re-priming its pipeline (the cold-boot path, used at
     /// construction and whenever firmware is (re)loaded). The priming reads' own bus-cycle cost
     /// is charged to `arm_cycle_count` like any other access — there is no prior state to
     /// preserve at these call sites (see [`Self::reset_arm`] for the one call site that does).
@@ -179,7 +178,7 @@ impl St018Board {
         self.cpu = cpu;
     }
 
-    /// A true ARM reset (Mesen2 `PowerOn(forReset=true)`, the SNES-side `$3804` 1->0 edge):
+    /// A true ARM reset (the SNES-side `$3804` 1->0 edge):
     /// re-primes the pipeline exactly like [`Self::power_on_arm`], but saves `arm_cycle_count`
     /// first and restores it afterward, discarding the priming reads' own cost — the reference
     /// does the identical save-before/restore-after around its own `ProcessPipeline()` call.
@@ -189,7 +188,7 @@ impl St018Board {
         self.arm_cycle_count = saved;
     }
 
-    /// `(HasDataForSnes<<0)|(Ack<<2)|(HasDataForArm<<3)|(!ArmReset<<7)` (Mesen2 `GetStatus`).
+    /// `(HasDataForSnes<<0)|(Ack<<2)|(HasDataForArm<<3)|(!ArmReset<<7)` (`docs/st018-arm-notes.md`).
     const fn status(&self) -> u8 {
         (self.has_data_for_snes as u8)
             | ((self.ack as u8) << 2)
@@ -197,7 +196,7 @@ impl St018Board {
             | ((!self.arm_reset as u8) << 7)
     }
 
-    /// SNES-side register read (Mesen2 `St018::Read`) — the ARM is already caught up by the time
+    /// SNES-side register read — the ARM is already caught up by the time
     /// this runs (every master tick already ran [`Board::coprocessor_tick`] first), so unlike
     /// the reference there is no explicit `Run()` call needed here.
     ///
@@ -220,7 +219,7 @@ impl St018Board {
         }
     }
 
-    /// SNES-side register write (Mesen2 `St018::Write`).
+    /// SNES-side register write.
     fn write_register(&mut self, window: u16, val: u8) {
         match window {
             0x3802 => {
@@ -238,7 +237,7 @@ impl St018Board {
         }
     }
 
-    /// ARM-side byte read (Mesen2 `St018::ReadCpuByte`) — the top nibble of the 32-bit ARM
+    /// ARM-side byte read — the top nibble of the 32-bit ARM
     /// address selects the region; anything unmapped reads 0 (matches the source's own
     /// `default: return 0`).
     fn read_arm_byte(&mut self, addr: u32) -> u8 {
@@ -258,7 +257,7 @@ impl St018Board {
         }
     }
 
-    /// ARM-side byte write (Mesen2 `St018::WriteCpuByte`). PRG/data ROM are read-only from the
+    /// ARM-side byte write. PRG/data ROM are read-only from the
     /// ARM side. The `$04:...20/24/28/2A` cases are unresolved even in the reference
     /// implementation (commented `//??` there) — ported as no-ops rather than inventing
     /// behavior, per `docs/st018-arm-notes.md`.
@@ -278,7 +277,7 @@ impl St018Board {
     }
 
     /// Word access is 4 byte-lane accesses at `addr&!3 | {0,1,2,3}`, packed/unpacked
-    /// little-endian (Mesen2 `ReadCpu`, which just calls the byte version 4x) — no
+    /// little-endian (four byte-lane reads) — no
     /// misalignment-rotation is applied, confirmed against the real board implementation.
     fn read_arm_word(&mut self, addr: u32) -> u32 {
         let base = addr & !3;
@@ -288,7 +287,7 @@ impl St018Board {
             | (u32::from(self.read_arm_byte(base | 3)) << 24)
     }
 
-    /// The write-side mirror of [`Self::read_arm_word`] (Mesen2 `WriteCpu`).
+    /// The write-side mirror of [`Self::read_arm_word`].
     #[allow(clippy::cast_possible_truncation)]
     fn write_arm_word(&mut self, addr: u32, val: u32) {
         let base = addr & !3;
@@ -343,7 +342,7 @@ impl Board for St018Board {
         self.inner.sram_mut()
     }
 
-    /// Step the ARM core to catch up with the master clock by exactly one tick (Mesen2 `Run()`,
+    /// Step the ARM core to catch up with the master clock by exactly one tick (the references' `Run()`-style catch-up,
     /// see the module doc for why this is driven every tick instead of lazily on access/EOF).
     /// Inert (no-op) until firmware is loaded — the chip stays absent, never silently faked.
     fn coprocessor_tick(&mut self) {
@@ -522,7 +521,7 @@ mod tests {
         b.write24(0x00_3804, 1); // assert reset
         b.write24(0x00_3804, 0); // 1->0 edge: re-initializes the ARM
         // `power_on_arm` never touches `arm_cycle_count` -- it stays board-owned across a reset,
-        // matching Mesen2's `PowerOn(forReset=true)` preserving the cycle counter.
+        // a reset preserves the cycle counter.
         assert_eq!(b.arm_cycle_count, cycles_before_reset);
         assert_eq!(b.cpu.regs.r[0], 0); // registers ARE re-zeroed by the reset
     }

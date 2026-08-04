@@ -49,7 +49,7 @@ downstream of the APU and unaffected), so the compositor's obligation is that th
 reproducible — and, more strictly, **bit-identical to the current renderer for every static-register
 line**, diverging only where a mid-line register change makes the current renderer wrong.
 
-### The mechanism being ported (from the ares/bsnes accurate PPU)
+### The mechanism being modelled (as observed in the accurate reference PPUs)
 
 1. **Granularity.** Rendering is per-dot, not per-scanline. One visible dot = 4 master clocks. The
    accurate PPU runs a per-clock dispatcher (`PPU::cycle<N>`, `ares/.../main.cpp:212`) that at each

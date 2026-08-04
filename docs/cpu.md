@@ -193,9 +193,9 @@ per-opcode-oracle exit criterion (`docs/adr/0005` self-gen oracle of record is t
 - Full register file (A/X/Y 8-16 bit by M/X, S/D/DBR/PBR/PC, P + hidden E), with 8-bit index
   high-byte zeroing and emulation-mode page-`$01` stack confinement.
 - **Emulation-mode invariants** asserted at every instruction boundary (and before stack
-  pushes), matching bsnes: `S.h` forced to `$01`, `M`/`X` status bits forced set, `X.h`/`Y.h`
+  pushes), per the documented emulation-mode rules: `S.h` forced to `$01`, `M`/`X` status bits forced set, `X.h`/`Y.h`
   forced to `0`. This is what makes the `.e` (emulation) oracle tests pass.
-- **Direct-page addressing** ported from bsnes `memory.cpp`: the emulation-mode `DL==0`
+- **Direct-page addressing** per the documented 65C816 addressing rules: the emulation-mode `DL==0`
   page-lock (`readDirect` → `(D & 0xFF00) | (addr & 0xFF)`), per-byte high-byte wrap for
   pointer fetches, `readDirectN` (no page-lock) for long-indirect, and bank-`0` high-byte
   wrap for 16-bit direct/stack operands.

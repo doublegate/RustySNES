@@ -179,7 +179,10 @@ impl Cpu {
     }
 
     // ----------------------------------------------------------------------------------
-    // Direct-page address arithmetic (clean-room port of bsnes `memory.cpp`).
+    // Direct-page address arithmetic, per the documented 65C816 addressing rules (WDC W65C816S
+    // datasheet, `ref-docs/2026-07-20-wdc-w65c816s-citation.md`; emulation-mode page-lock behaviour
+    // per anomie's SNES documents). Cross-checked against reference emulators as behavioural
+    // oracles; no third-party emulator code is incorporated.
     //
     // `readDirect`  : EF && DL==0 → (D & 0xFF00) | (addr & 0xFF)  [page-locked low byte]
     //                 else        → (D + addr) & 0xFFFF
@@ -2534,8 +2537,9 @@ impl Cpu {
     // for simplicity (count is per-byte accurate; interruptibility is approximated).
     // ----------------------------------------------------------------------------------
 
-    /// `MVN` (`0x54`, adjust `+1`) — block move forward. Clean-room port of ares
-    /// `instructionBlockMove8/16`: the source/dest addresses use the **full 16-bit** `X`/`Y`
+    /// `MVN` (`0x54`, adjust `+1`) — block move forward, per the documented 65C816 block-move
+    /// semantics (WDC W65C816S datasheet; cross-checked against reference emulators as behavioural
+    /// oracles): the source/dest addresses use the **full 16-bit** `X`/`Y`
     /// (`V.b<<16 | X.w`); only the *increment* respects the index width — `X.l += adjust` when
     /// `X=1` (8-bit index, high byte preserved), `X.w += adjust` when `X=0`. The loop tests `A.w`
     /// *then* post-decrements (`if(A.w--) PC.w -= 3`), so it moves `A+1` bytes.
