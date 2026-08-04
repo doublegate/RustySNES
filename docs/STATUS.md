@@ -3,7 +3,8 @@
 This file is authoritative for per-suite pass counts, the board / coprocessor matrix, and
 version policy. Everything else defers to it.
 
-**Current release:** `v1.25.0 "Workbench"` (`v1.24.0 "Ensemble"`, `v1.23.0 "Cadence"`, `v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
+**Current release:** `v1.30.0 "Threshold"` (`v1.29.0 "Triangulate"`, `v1.28.0 "Plumbline"`,
+`v1.27.0 "Tether"`, `v1.26.0 "Bulwark"`, `v1.25.0 "Workbench"`, `v1.24.0 "Ensemble"`, `v1.23.0 "Cadence"`, `v1.22.0 "Horizon"`, `v1.21.0 "Touchstone"`, `v0.1.0 "Foundation"`,
 `v0.2.0 "Persistence"`, `v0.3.0 "Continuum"`, `v0.4.0 "Completion"`, `v0.5.0 "Fidelity"`,
 `v0.6.0 "Shippable"`, `v0.7.0 "Resolution"`, `v0.8.0 "Community"`, `v0.9.0 "Threshold"`,
 `v1.0.0 "Zenith"`, `v1.0.1 "Aftertouch"`, `v1.1.0 "Latchkey"`, `v1.2.0 "Phosphor"`,
@@ -59,6 +60,27 @@ along, both found by frontend work and both invisible to rendering: `Cpu::interr
 bookkeeping so a debugger can tell a vectored step from an executed one, and a `delta::Chain`
 eviction defect (a keyframe evicted from the front orphaned every delta that referenced it) that
 affected the **rewind buffer** as much as the new greenzone.
+
+**`v1.26.0` – `v1.30.0` are the post-parity ladder**, and only two of the five change emulation
+behaviour. `v1.26.0 "Bulwark"` and `v1.27.0 "Tether"` do not: the first builds the fuzzing layer
+(fourteen `cargo-fuzz` targets; one found a reachable 4 GiB allocation from a forged ROM-header
+byte), hardens 34 pinned actions and 15 de-credentialed checkouts, and closes the gap where **every
+golden vector was reachable from no pull-request job**; the second adds netplay client-side depth
+(graded sticky desync verdict, peer liveness and RTT as a `Transport` decorator with an injected
+clock, read-only spectating) with `tests/determinism.rs` passing unchanged. `v1.28.0 "Plumbline"`
+gets the **second reference emulator working** — the battery had never completed under Mesen2, and
+the cause was one extra `emu.setInput` in the harness — and models the short and long scanlines
+(`B2.02`/`B2.03`), which is where 60.0988 Hz comes from; the NTSC frame now alternates
+357,368 / 357,364 master clocks. `v1.29.0 "Triangulate"` adds a **third** reference (a headless ares
+host), which is what made two engine defects visible: the SMP wait-state selectors were parsed,
+saved, restored and **read by nothing**, and the APU ran **0.92% slow on PAL** because its clock
+divisor was pinned to the NTSC master rate (NTSC output byte-identical). It is also the release in
+which AccuracySNES found a bug in a *reference* emulator for the first time. `v1.30.0 "Threshold"`
+is mobile store-readiness engineering plus a **51% headless frame-time recovery** (14.34 ms →
+7.03 ms), value-preserving by construction and pinned by an exhaustive comparison against the
+original function. **No save-state format change across any of the five** (`FORMAT_VERSION` stays
+at 10). Per-release notes: `docs/releases/`.
+
 See `CHANGELOG.md` for full per-release detail. `v1.0.0` closes the production-cut
 gate: `Board: Send` (unblocking `emu-thread` to compile/test/lint clean for the first time, though
 it stays off-by-default pending full feature parity — see `docs/frontend.md`), the five
@@ -241,7 +263,7 @@ tracked here, always current, reaffirmed every release:
 | Core/Curated coprocessors (oracle-gated) | ✅ **3 / 3, honesty gate green** | DSP-1 (4 commercial ROMs), Super FX/GSU (58 Krom ROMs + per-opcode suite), SA-1 (18 commercial carts) — `ORACLE_COPROCESSORS` |
 | BestEffort coprocessors, real-title validated | ✅ **10 / 11** | DSP-2, DSP-4, ST010, S-DD1, CX4, OBC1 boot a real commercial title to real gameplay content. **DSP-3 (SD Gundam GX) + ST011 (2-dan Morita Shougi)** are liveness/determinism-validated — detection + `host_accesses > 0` + bit-identical framebuffer (`dsp3_st011_oncart`). **ST018 (Nidan Morita Shogi 2) + S-RTC (Daikaijuu Monogatari II)** are detection + boot + determinism-validated against their real carts (`srtc_st018_oncart`), but their coprocessor's core function is **usage-gated** (the ST018 shogi AI runs only on the computer's move; the S-RTC clock is read at specific moments), so it is not exercised in a headless boot |
 | BestEffort coprocessors, no booting dump | ⚠️ **1 / 11** | SPC7110 — **two** local Tengai Makyou Zero dumps both fail to boot to content: the 7 MiB one is a fan-translation ROM hack needing a patch-only memory region no cartridge has (`docs/audit/spc7110-boot-crash-2026-07-08.md`); a 5 MiB dump (sha256 `8620203d…`) freezes at a near-blank screen with zero coprocessor activity, and does not match the documented-good original (`69d06a3f…`). The correct original-cartridge dump remains the ROM-sourcing gap (`docs/rom-test-corpus.md`) |
-| AccuracySNES (first-party battery) | ✅ **359 / 443 assertions covered, 100% on-cart pass** | A 343-test self-scoring battery spanning Groups A-G. **359 of 443** dossier assertions covered: **302 on-cart** + **55 via rendered scenes** (`docs/adr/0013`) + **2 host-side** (`dossier.rs::HOST_COVERED`, admitted only where the cart physically cannot observe the assertion), kept as separate columns on purpose (`docs/accuracysnes-coverage.md`, regenerated with the ROM so it cannot drift). Every scored row is inject-verified for non-vacuity and cross-validated headlessly against **Mesen2, snes9x and ares** — three independent references as of `v1.29.0`, with MesenCE additionally serving as the per-dot compositor's blueprint and exact-frame oracle. Provenance gate green. Ships an AccuracyCoin-style on-cart UI as of `v1.21.0` (paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer). Remaining ~84 assertions are compositor-gated hi-res, second-image G-rows, treacherous CPU/dot-model timing, or provably uncoverable — though "uncoverable" has twice proved too strong (`E5.06` and `B2.02`/`B2.03` all landed after being parked) (`docs/accuracysnes-coverability-audit-2026-07-23.md`) |
+| AccuracySNES (first-party battery) | ✅ **361 / 443 assertions covered, 100% on-cart pass** | A 346-test self-scoring battery spanning Groups A-G. **361 of 443** dossier assertions covered: **304 on-cart** + **55 via rendered scenes** (`docs/adr/0013`) + **2 host-side** (`dossier.rs::HOST_COVERED`, admitted only where the cart physically cannot observe the assertion), kept as separate columns on purpose (`docs/accuracysnes-coverage.md`, regenerated with the ROM so it cannot drift). Every scored row is inject-verified for non-vacuity and cross-validated headlessly against **Mesen2, snes9x and ares** — three independent references as of `v1.29.0`, with MesenCE additionally serving as the per-dot compositor's blueprint and exact-frame oracle. Provenance gate green. Ships an AccuracyCoin-style on-cart UI as of `v1.21.0` (paged menu + automatic skyline results + per-test B-skip + a Select WRAM debug viewer). Remaining ~82 assertions are compositor-gated hi-res, second-image G-rows, treacherous CPU/dot-model timing, or provably uncoverable — though "uncoverable" has twice proved too strong (`E5.06` and `B2.02`/`B2.03` all landed after being parked) (`docs/accuracysnes-coverability-audit-2026-07-23.md`) |
 | Determinism contract | ✅ **proven** | bit-identical framebuffer/audio across runs; save-state round-trip proven across all three board tiers (no-coprocessor, Curated, BestEffort) |
 
 **Named residuals, tracked not hidden:** the 65816 `e1.e` divergence (`docs/adr/0002`);

@@ -1555,3 +1555,141 @@ which affected the **rewind buffer** as much as the new greenzone.
 across all eight feature sets (the `--features full` set excludes `emu-thread`, so default+full is
 not enough); `rustysnes-apu`/`-core`/`-cpu` clippy; `no_std` core builds for `thumbv7em-none-eabihf`;
 fmt and `RUSTDOCFLAGS=-D warnings cargo doc` clean; the AccuracySNES battery unchanged.
+
+### `v1.26.0 "Bulwark"` — hardening — **RELEASED 2026-07-31**
+
+The first rung after the frontend-parity program closed. **No chip model was touched**; every change
+is to the machinery that proves, protects, or measures the engine.
+
+- **Fuzzing infrastructure (`fuzz/`)**, a separate cargo workspace so cargo-fuzz's nightly
+  requirement never leaks into `cargo check --workspace`. Fourteen targets, one per untrusted-input
+  boundary. A **compile gate** on every PR so a target cannot rot out of buildability; the
+  **campaign** weekly, because per-commit fuzzing re-treads a corpus it already has.
+- **The defect it found in under twenty seconds.** `Header::detect` computed SRAM size as
+  `1024 << N` with `N` an arbitrary byte from an untrusted image: debug builds panicked for
+  `N >= 64`, and **release builds masked the shift**, so `N = 22` handed `board::select` a **4 GiB
+  zeroed allocation**. `wasm32` was worse on both counts. Clamped to `MAX_SRAM_SIZE` with the shift
+  amount capped first — both bounds are needed, since a `min` on the result cannot run until the
+  shift has already happened. Invisible without a seeded corpus: header detection scores candidate
+  offsets, so a random image never reaches that code.
+- **CI supply-chain hardening.** `persist-credentials: false` on 15 of 17 checkouts, **audited per
+  site** — `release-auto.yml`'s `prepare` genuinely needs the token to push a tag, so the sibling
+  project's "no job needs it" conclusion does not transfer. All 34 third-party action references
+  pinned to commit SHAs. The release-tag existence check now **fails closed**: `git ls-remote`
+  collapsed *present*, *absent* and *lookup failed* into two outcomes, so a network blip re-tagged a
+  published release.
+- **The golden vectors ran in no pull-request job.** 53 rendered-scene goldens plus every framebuffer
+  golden were reached only by `full-test`, on `main`. Found while looking for the sibling's
+  `expansion_level_tripwire`, which does not port.
+- **Run-ahead stays opt-in, measured rather than assumed.** The save/load round trip is **2.4%** of
+  the NTSC budget — never the dominant cost. What run-ahead costs is the extra frame: `frames = 1`
+  needs 79% of the budget on a fast development machine, `frames = 2` needs 118%. One real bug fell
+  out: a derived `Default` gave `throttle_ms: 0.0`, which *disables* the throttle for exactly the
+  user who had just enabled run-ahead from Settings.
+
+### `v1.27.0 "Tether"` — netplay client-side depth — **RELEASED 2026-07-31**
+
+Client-side only by decision: no signaling server, STUN, relay, NAT traversal, mesh, or lobby.
+`PROTOCOL_VERSION` 1 → 2. Determinism untouched — `tests/determinism.rs` passes unchanged.
+
+- **Desync is a verdict, not a tripwire.** The *first* checksum mismatch was fatal, and a
+  burst-reordered pair of `Checksum` messages can momentarily disagree before
+  `compare_pending_checksums` reconciles them. Now `InSync` / `Suspect` / `Desynced` with a
+  three-consecutive threshold (~1.5 s) and a **sticky** terminal state, because the condition cannot
+  heal. The remote framebuffer hash is kept, which is what makes a mismatch diagnosable: same
+  picture + different digest is a *timing* divergence, different picture a *state* one.
+- **`LivenessTransport` is a `Transport` decorator, not a session field**, because ADR 0004 forbids a
+  clock inside `RollbackSession` — which needed **no change at all**, the existing trait was already
+  the right seam. `Live` → `Interrupted` (2 s) → `TimedOut` (5 s), deliberately forgiving: Mesen's
+  ~150 ms trigger flags ordinary Wi-Fi jitter, and `interrupt_after` is two full ping intervals so a
+  single lost ping can never move the grade. RTT over a **probe/echo token pair**, so a duplicated
+  datagram produces no second sample and a late reply produces none at all. **The clock is injected**
+  — 21 tests, zero sleeps.
+- **Read-only spectating.** Never predicts, never rolls back, never sends — so **a spectator cannot
+  desync**. `delay_frames` moves *when* a frame is revealed, never *what* it contains, pinned against
+  a byte-identical reference run.
+- **The frontend's load-bearing half is not the readout:** `drive` raises the liveness verdict before
+  advancing. Without it the work would have been inert — the session cannot tell "waiting for the
+  peer's next input" from "waiting forever", and that hang is what this set out to remove.
+
+### `v1.28.0 "Plumbline"` — the second reference starts working — **RELEASED 2026-07-31**
+
+AccuracySNES coverage **344 → 347 of 443**.
+
+- **The Mesen2 oracle: one `emu.setInput` call too many.** In this MesenCE build's `--testRunner`
+  the port argument does not select a controller — 0, 1 and 2 all land on controller 1 — so the
+  second call overwrote port 1 with a mask containing no Start, and the cart sat in its pre-battery
+  menu forever. `mesen_scenes.lua` held no input contract at all. Both halves now arbitrate:
+  **335/335 status bytes, 53/53 scenes on both references.** It retracted the "completes 14 of 335"
+  figure (an all-zero array misread — no test ever ran) and two cart-side fixes aimed at a layer that
+  was never at fault.
+- **The short and long scanlines.** `B2.02`: NTSC `V = 240` is 1360 clocks, so the NTSC frame
+  **alternates 357,368 / 357,364** — which is where 60.0988 Hz comes from. `B2.03`: PAL `V = 311` is
+  1368 clocks and **341** dots, the opposite shape — it appends a dot rather than substituting
+  lengths, so it moves the H wrap. Prerequisite: the field flag's doc contradicted the code and made
+  the gate look unreachable in progressive mode.
+- **Three rows.** `A5.19` (`RTI` 7/6 — the `xce` pairs must sit *inside* the measured span, because
+  the instrument runs at the caller's register width and does not cancel across a mode boundary),
+  `C7.05` (Range Over, which needed the new `irq_far_shim` so a relocated group can install an IRQ
+  handler at all), `C7.06` (Time Over — 8x8 sprites can never reach it).
+- **Per-row cross-check signatures.** The colour-set comparison is position-blind, which is the
+  entire content of a raster test. Calibration recovered the documented +7 overscan offset **by
+  measurement**, and immediately showed `hdmaen_latch_test` sitting **23 rows** from MesenCE on
+  `main` — its golden is a regression lock, not an accuracy oracle.
+- **Mobile CI arrives early** (slated for `v1.30.0`, landed here): Android with the 16 KB
+  page-alignment gate, which found four real defects on its first run, including that the app could
+  not be built from a clean checkout at all; and iOS launching the app in a simulator rather than
+  only linking it.
+
+### `v1.29.0 "Triangulate"` — a third reference — **RELEASED 2026-08-02**
+
+The largest accuracy release the project has cut. Coverage **347 → 361 of 443** (304 on-cart + 55
+scene + a new **2-row host tier** for assertions the cart physically cannot observe).
+
+- **A headless ares host**, wired into `crossval.sh` as `3 reference(s) agree`. Opt-in and skipping
+  cleanly. Three setup steps were mandatory and all three fail as the *same* segfault in
+  `System::load`.
+- **AccuracySNES found a bug in a reference emulator for the first time.** ares' `$F1` handler
+  negates the timer-2 counter reset, so every later `$F1` write zeroes `T2OUT` — including the write
+  that stops the timer. ares is internally inconsistent (its timers 0 and 1 do the un-negated
+  version), which is the strongest available evidence it is a stray `!`. **It took the third opinion
+  to see**; with two references both rows passed everywhere.
+- **Two engine defects.** The SMP wait-state selectors were parsed, saved, restored and **read by
+  nothing** — the eighth instance of the dead-config class and the first found by the cart. And the
+  APU ran **0.92% slow on PAL** because its clock divisor was pinned to the NTSC master rate; NTSC
+  output is byte-identical.
+- **The H-IRQ comparator moves into the clock domain** (`T-06-A`). `HIRQ_TRIGGER_DELAY = 4` was a
+  dot-domain rounding, exact only while every dot is four clocks. No framebuffer golden moved this
+  time. `B4.16` turns out to be a weaker guard than its own doc claimed — an IRQ is taken at an
+  instruction boundary, so a one-dot shift is absorbed.
+- **Two full-instruction-set sweeps.** `E2.10` times all 256 SPC700 opcodes on-cart against fullsnes,
+  with 25 named exclusions and the measured count asserted at 231. `A6.15` executes all 241
+  straight-line 65C816 opcodes in a WRAM sandbox — its terminator cannot be a return, because `TXS`
+  moves the stack pointer.
+- **Retractions, on measurement.** `A2.10` never needed settling (the failing host was snes9x all
+  along). `F1.10`'s Mesen2 verdict is **phase-fragile** — rewriting an unrelated APU row made Mesen2
+  pass it. The Mode-5 hi-res divergence is a **2-vs-2 reference disagreement**, not a RustySNES
+  defect: diffing pixels rather than hashes showed one column, on a value ares itself flags as
+  unverified.
+
+### `v1.30.0 "Threshold"` — mobile store-readiness — **RELEASED 2026-08-03**
+
+**Mobile Phase 6 stays NOT GREENLIT.** This removes prerequisites from that gate's checklist; the
+submission is `v2.0.0` and a maintainer decision.
+
+- **A mobile-shell §4.7 supplement**, and a correction: the authoritative audit already existed
+  (`docs/mobile-readiness.md`, #291) and reaches a **different trademark verdict**, because the
+  supplement is scoped to the two shells and never looked at the desktop frontend. Where they
+  differ, the wider one governs. The supplement's strongest evidence is capability rather than
+  intent — **Android declares no permissions at all, not even `INTERNET`**.
+- **An unsigned `assembleRelease` path** with its own 16 KB gate, and **an instrumented UniFFI smoke
+  test** in its own CI job that boots a real cartridge on a device. `assembleDebug` proves the
+  bindings compile; no build can prove `System.loadLibrary` finds the `.so` for the device's ABI.
+- **A 51% headless frame-time recovery**, 14.34 ms → 7.03 ms against a 16.64 ms deadline. `v1.29.0`'s
+  H-IRQ change had `check_hv_irq` walk the scanline from dot 0 on every call — some 30 million
+  iterations a frame. `git bisect run` named it exactly. Value-preserving by construction, pinned by
+  an exhaustive comparison against the **original function verbatim**.
+- **The fuzzing campaign had never run.** All 14 targets reported a FINDING within about a second
+  each with `fuzz/artifacts/` empty — `cargo fuzz` defaults `--target` to the triple the cargo-fuzz
+  *binary* was built for, and CI's is a musl build on a gnu runner. `run.sh` counts a non-zero exit
+  as a finding, because a build failure and a crash look alike.

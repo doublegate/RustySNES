@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.25.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
+  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.30.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
   <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/65C816%20oracle-0--diff-brightgreen.svg" alt="65C816 oracle: 0-diff"></a> <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/SPC700%20oracle-0--diff-brightgreen.svg" alt="SPC700 oracle: 0-diff"></a> <a href="https://doublegate.github.io/RustySNES/"><img src="https://img.shields.io/badge/pages-demo%20%2B%20rustdoc%20%2B%20docs-success.svg" alt="GitHub Pages"></a><br>
   <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Web-lightgrey.svg" alt="Platform"></a>
 </p>
@@ -623,14 +623,17 @@ Material-for-MkDocs documentation handbook at
 
 ## Current Release
 
-RustySNES's current release is **v1.25.0 "Workbench"** — the frontend release that brings the
-egui shell up to the engine's level: a full debugger, a multi-pass shader stack with `.slangp`
-support, performance distributions and hardware-resolved frame pacing, an 8-voice audio mixer with
-compressed rewind, A/V capture, a virtual pad, and TAStudio. It is **additive throughout**: an
-existing `config.toml` renders and sounds byte-identically, and no save-state format changed.
+RustySNES's current release is **v1.30.0 "Threshold"** — the last rung before the mobile store
+gate: an App Store §4.7 mobile-shell supplement, an unsigned Android release build path, an
+instrumented UniFFI smoke test that boots a real cartridge on a device, a **51% headless frame-time
+recovery** (14.34 ms → 7.03 ms) bisected to a per-dot H-IRQ walk, and a fuzzing campaign that turns
+out never to have run. **Mobile Phase 6 stays NOT GREENLIT** — this removes prerequisites from that
+gate's checklist, it does not move the gate.
 
 See [`docs/STATUS.md`](docs/STATUS.md) and [`CHANGELOG.md`](CHANGELOG.md) for the full release
-history (`v0.1.0` through `v1.25.0`) and per-release detail.
+history (`v0.1.0` through `v1.30.0`) and per-release detail;
+[`docs/releases/`](docs/releases/) carries a comprehensive notes file per release from `v1.26.0`
+onward.
 
 - **Download:** the [GitHub Releases](https://github.com/doublegate/RustySNES/releases) page —
   desktop binaries for Linux, macOS (aarch64), and Windows.
@@ -704,12 +707,30 @@ Everything above left the accuracy dashboard, per-suite pass counts, and coproce
 - **`v1.24.0 "Ensemble"`** — DSP-3 (SD Gundam GX) and ST011 (Hayazashi 2-dan Morita Shougi) wired and
   validated, completing every NEC coprocessor the SNES shipped.
 
-And the current release turns back to the shell around that engine:
+Then the shell around that engine catches up, and the ladder turns to what proves the whole thing:
 
 - **`v1.25.0 "Workbench"`** — the frontend catches up with the engine, in ten reviewed increments
   (`T-FP-A`-`T-FP-G2`): debugger, shader stack + `.slangp`/GLSL bridge, observability + real pacing,
   audio mixer + compressed rewind, A/V capture + virtual pad + databases, and TAStudio. Five
   settings that had round-tripped through `config.toml` while nothing read them are now live.
+- **`v1.26.0 "Bulwark"`** — the defences the project had specified but never built: fourteen
+  `cargo-fuzz` targets (which found a reachable 4 GiB allocation from a forged ROM header byte),
+  CI supply-chain hardening across 34 pinned actions and 15 de-credentialed checkouts, and the
+  discovery that **every golden vector was reachable from no pull-request job**.
+- **`v1.27.0 "Tether"`** — netplay client-side depth: a graded, sticky desync verdict so one
+  transient no longer ends the game, peer liveness and RTT as a `Transport` decorator with an
+  injected clock (determinism untouched), and read-only spectating that cannot desync by
+  construction.
+- **`v1.28.0 "Plumbline"`** — the second reference emulator starts working. The AccuracySNES battery
+  had **never** completed under Mesen2, and the cause was one extra `emu.setInput` in the harness.
+  Plus the short and long scanlines (`B2.02`/`B2.03`) — where 60.0988 Hz actually comes from — and
+  the Android/iOS CI that found four real defects on its first run.
+- **`v1.29.0 "Triangulate"`** — a **third** reference: a headless ares host. With three opinions
+  available, AccuracySNES found a bug in a reference emulator for the first time, two engine defects
+  surfaced (the SMP wait states implemented nowhere; the APU running 0.92% slow on PAL), and several
+  published findings were retracted on measurement. Coverage **347 → 361 of 443**.
+- **`v1.30.0 "Threshold"`** — mobile store-readiness engineering, the frame-time recovery, and a
+  fuzzing campaign that had reported fourteen findings while building nothing.
 
 The full roadmap lives in [`to-dos/ROADMAP.md`](to-dos/ROADMAP.md) (the phase spine) and
 [`to-dos/VERSION-PLAN.md`](to-dos/VERSION-PLAN.md) (the named release ladder, including the
