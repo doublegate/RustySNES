@@ -87,6 +87,7 @@ nav:
   - Status & Accuracy:
       - Dashboard: STATUS.md
       - Accuracy Ledger: accuracy-ledger.md
+      - AccuracySNES remaining-work triage: accuracysnes-remaining-work-triage.md
       - Testing Strategy: testing-strategy.md
       - Compatibility: compatibility.md
       - ROM Test Corpus: rom-test-corpus.md
