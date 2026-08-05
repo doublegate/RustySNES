@@ -105,6 +105,25 @@ exists.
 
 `C7.07` — *"Time Over false positive"* `[ERRATA]`: first sprite 16x16+ at X=0-255 with others at
 negative X. Same family as `C7.05`/`C7.06`, so the sprite/flag instrument is already built.
+**Design worked out 2026-08-05, ready to author:**
+
+- Reuse `setup_tile_budget_sprites`'s shape and `arm_over_irq_on_line`/`assert_handler_ran`
+  verbatim; the far-IRQ shim (`V_IRQ_VEC_FAR` → `irq_far_shim`) is already wired for group C.
+- **Negative X is the high table, not the low one.** Each high-table byte covers four sprites at
+  two bits each: bit 1 is the size select, bit 0 is X bit 8. The existing helper writes `$AA`
+  (`10101010` — large, X bit 8 clear). Writing **`$FF`** makes the same four sprites large *and*
+  sets X bit 8, so a low-table `X = $F8` becomes `$1F8` = **-8**: the sprite hangs off the left
+  edge.
+- The assertion is the errata: those off-screen-left sprites **still consume the tile budget**, so
+  Time Over sets on a line whose *visible* tile count is far under 34.
+- **The control is what makes it non-vacuous**, and it is the whole test: the identical sprite set
+  with X bit 8 **clear** (all on-screen) must also set Time Over — proving the flag responds to the
+  tile budget rather than to the off-screen placement. Then a *third* arm with few enough sprites
+  must leave it clear, proving the instrument can read "not set" at all. Without that third arm the
+  row cannot distinguish the errata from a core that raises Time Over unconditionally.
+- Inject at the site the row names: make range evaluation **skip** X-bit-8 sprites. Time Over must
+  then read clear in the negative-X arm and stay set in the on-screen arm; if both move, the
+  attribution is wrong.
 
 `B4.01` — *"/NMI asserts at **H = 0.5**"*. Half-dot precision against an instrument that reads
 whole dots; likely needs the same clock-domain instrument `A5.20`/`B1.05` are parked on. Treat as
