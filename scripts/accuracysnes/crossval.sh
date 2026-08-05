@@ -78,6 +78,29 @@ esac
 MESEN=${MESEN:-$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll}
 SNES9X=${SNES9X:-$REF_PROJ/snes9x/libretro/snes9x_libretro.so}
 
+# Mesen ships in two shapes and BOTH are legitimate oracles, because either way this only ever runs
+# the program and reads its output -- never its source (docs/ai-emulator-provenance-guardrails.md).
+#
+#   - a self-contained EXECUTABLE (an AppImage, or a published single-file build): invoke directly;
+#   - a `Mesen.dll` from a framework-dependent build: invoke through `dotnet`.
+#
+# Checking for `dotnet` alone used to gate the whole Mesen block, so an AppImage install -- the
+# normal way this is packaged on Linux, and what is installed on this machine -- was silently
+# SKIPPED and the run degraded to a single reference without ever saying why.
+mesen_available() {
+    [[ -n ${MESEN:-} ]] || return 1
+    [[ -x $MESEN ]] && return 0
+    [[ -f $MESEN && $MESEN == *.dll ]] && command -v dotnet >/dev/null && return 0
+    return 1
+}
+mesen_run() {
+    if [[ -x $MESEN && $MESEN != *.dll ]]; then
+        "$MESEN" "$@"
+    else
+        dotnet "$MESEN" "$@"
+    fi
+}
+
 if [[ ! -f $ROM ]]; then
     echo "error: $ROM not found — run 'cargo run -p accuracysnes-gen' first" >&2
     exit 1
@@ -374,9 +397,9 @@ else
 fi
 
 # --- Mesen2, via its headless test runner --------------------------------------------------------
-if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+if mesen_available; then
     echo "=== Mesen2 (headless test runner) ==="
-    dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_crossval.lua --timeout=60 \
+    mesen_run --testrunner "$ROM" scripts/accuracysnes/mesen_crossval.lua --timeout=60 \
         --snes.port2.type=SnesController >/dev/null 2>&1
     code=$?
     case $code in
@@ -437,9 +460,9 @@ if [[ -f $PAL_ROM ]]; then
             rc=1
         fi
     fi
-    if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+    if mesen_available; then
         echo "=== Mesen2 (PAL image) ==="
-        dotnet "$MESEN" --testrunner "$PAL_ROM" scripts/accuracysnes/mesen_crossval.lua \
+        mesen_run --testrunner "$PAL_ROM" scripts/accuracysnes/mesen_crossval.lua \
             --timeout=120 --snes.port2.type=SnesController >/dev/null 2>&1
         code=$?
         case $code in
@@ -515,7 +538,7 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
         { "$HOST" "$SNES9X" "$ROM" 2600 --scenes 2>/dev/null || true; } | check_scenes "snes9x" \
             || rc=1
     fi
-    if [[ -f $MESEN ]] && command -v dotnet >/dev/null; then
+    if mesen_available; then
         echo "=== Mesen2 rendered scenes ==="
         # 800s, not 400, and not 180 before that. The scene loop runs after the whole battery, and
         # the battery keeps growing -- a timeout that merely fits today produces intermittent
@@ -528,7 +551,7 @@ if [[ -f $MANIFEST && -f $SCENE_GOLDEN ]]; then
         # the four banks that hold anything would halve it again and would also stop checking the
         # thing most worth checking about a freshly-grown image, which is that the upper banks are
         # mapped at all.
-        { dotnet "$MESEN" --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
+        { mesen_run --testrunner "$ROM" scripts/accuracysnes/mesen_scenes.lua \
             --timeout=800 --snes.port2.type=SnesController 2>/dev/null || true; } \
             | check_scenes "Mesen2" || rc=1
     fi
