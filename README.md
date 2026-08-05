@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.30.1-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
+  <a href="https://github.com/doublegate/RustySNES/actions"><img src="https://github.com/doublegate/RustySNES/workflows/CI/badge.svg" alt="Build Status"></a> <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a> <a href="https://github.com/doublegate/RustySNES/releases"><img src="https://img.shields.io/badge/version-v1.31.0-blue.svg" alt="Version"></a> <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-1.96-orange.svg" alt="Rust: 1.96"></a><br>
   <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/65C816%20oracle-0--diff-brightgreen.svg" alt="65C816 oracle: 0-diff"></a> <a href="#compatibility-and-accuracy"><img src="https://img.shields.io/badge/SPC700%20oracle-0--diff-brightgreen.svg" alt="SPC700 oracle: 0-diff"></a> <a href="https://doublegate.github.io/RustySNES/"><img src="https://img.shields.io/badge/pages-demo%20%2B%20rustdoc%20%2B%20docs-success.svg" alt="GitHub Pages"></a><br>
   <a href="#platform-support"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Web-lightgrey.svg" alt="Platform"></a>
 </p>
@@ -632,7 +632,9 @@ Material-for-MkDocs documentation handbook at
 
 ## Current Release
 
-RustySNES's current release is **v1.30.1 "Imprint"** — a provenance, licensing and attribution
+RustySNES's current release is **v1.31.0 "Ledger"** — all monetization removed; the project is
+permanently open-source and income-free ([ADR 0015](docs/adr/0015-rustysnes-is-permanently-non-commercial.md)),
+with **zero emulation-core behaviour change**. It follows **v1.30.1 "Imprint"** — a provenance, licensing and attribution
 release with **zero emulation-core behaviour change**: the written record now matches what the code
 actually is. See [`NOTICE`](NOTICE) and
 [`docs/originality-and-provenance.md`](docs/originality-and-provenance.md).
@@ -868,7 +870,7 @@ If you use RustySNES in academic research, please cite:
   author  = {RustySNES Contributors},
   title   = {RustySNES: A Cycle-Accurate SNES Emulator in Rust},
   year    = {2026},
-  version = {1.30.1},
+  version = {1.31.0},
   url     = {https://github.com/doublegate/RustySNES},
   note    = {Cycle-accurate SNES/Super Famicom emulator on a master-clock-precise scheduler;
              65C816 and SPC700 both 0-diff against their per-opcode oracles; AccuracySNES,
