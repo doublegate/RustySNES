@@ -9,6 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/ai-emulator-provenance-guardrails.md` is ingested as this project's highest-priority
+  development rule**, above accuracy, performance and schedule. The paste-ready block is now at the
+  top of the project section of `AGENTS.md` (which `CLAUDE.md` and `GEMINI.md` symlink to), so it
+  loads as standing context in every session.
+
+  The rule in one sentence: **a reference emulator is an opaque box you may run and observe, never
+  open and read.** Hardware behaviour is implemented from public documentation and pinned to public
+  test ROMs; if code is ever genuinely derived from an external source, that is a derivative work —
+  attribute it at the site, in a derivation table, in `NOTICE` and via SPDX, flag the licence
+  consequence to the maintainer, and **never** reword or delete an honest "ported from X" comment
+  to make the code look independent.
+
+- **A mechanical reference-firewall gate in CI** (`ci.yml`'s `lint` job). The guardrails are
+  explicit that prose is *advisory* — an agent can silently disregard it, and in this repository one
+  did. The gate fails the build if reference-emulator source appears in the tree, checking both
+  directory conventions (`ref-proj/`, `reference-emulators/`, `vendor/emulators/`) and tracked
+  source files under an upstream emulator's own path. It is scoped to source extensions so this
+  project's docs, which legitimately discuss those emulators by name, never trip it. **Verified
+  against the real tree before commit**, not just written.
+
+- **`docs/provenance-open-question.md`** — an honest, unresolved record that `v1.30.1 "Imprint"`
+  may itself be an instance of the second failure the guardrails describe. See below.
+
+### Removed
+
+- **`ref-proj/` is gone.** The directory held readable clones of ares, bsnes, Mesen2, MesenCE and
+  snes9x. That availability — not any single edit — is the whole trap: an accuracy objective, plus
+  readable copyleft source, plus a capable agent, with no barrier in between. The clones now live
+  outside the repository and outside any agent-readable path; the scripts reach them through
+  `REF_PROJ`, and **the crossval scripts now refuse to run without it and refuse an in-tree path
+  outright** (both behaviours verified). `.gitignore` keeps the ignore rules as a *backstop against
+  an accidental re-clone*, explicitly not as permission to re-create the directory.
+
+### Changed
+
+- **`NOTICE`'s self-certification is WITHDRAWN.** It asserted flatly that *"no source code from any
+  GPL-licensed emulator is incorporated into RustySNES."* The guardrails forbid exactly that claim
+  ("DO NOT SELF-CERTIFY… state uncertainty"), and it is withdrawn — **not because it is known to be
+  false**, but because it was produced by the same automated pass that had just reworded ~39
+  in-source provenance citations, several naming **bsnes and Mesen2, both GPLv3**. Section 2's
+  heading changes from "NO CODE INCORPORATED" to "INTENDED AS BEHAVIOURAL ORACLES — SEE THE
+  RETRACTION". Weakening an over-strong claim is the one edit in this area that needs no audit.
+
+- **An open question about `v1.30.1` is recorded rather than resolved.** That release reworded
+  provenance citations into "implemented from documentation" — which, under the guardrails now
+  adopted, is the *laundering* failure mode rather than remediation, regardless of the good faith
+  it was done in. The honest record survives in git (`e99b5fd^`), the exact recovery commands are
+  written down, and resolution requires a **human, ideally expert**, comparison against the
+  upstreams — obtained outside this workspace, since `ref-proj/` is now gone.
+
+  What was *right* in that pass is recorded too and should not be over-corrected: the false
+  "Mesen2 … (MIT)" annotation really was wrong (Mesen2 is GPLv3) and its correction stands; the
+  ST018 uncertainty was escalated rather than resolved favourably; ares' ISC notice was reproduced;
+  and **four ares source-path citations were deliberately left in place and must stay** — they are
+  honest evidence, one of which states the source was "confirmed by reading its `gfx.rs` directly."
+
 ## [1.31.0] "Ledger" - 2026-08-04
 
 ### Removed

@@ -22,14 +22,30 @@
 
 set -uo pipefail
 
-# Where the reference-emulator clones live. Overridable so this can be run from a git worktree
-# without symlinking `ref-proj` into it — a symlink there is machine-specific, and one was once
-# committed by accident because .gitignore's `/ref-proj/` matches a directory but not a symlink.
+# Where the reference-emulator clones live -- MANDATORY, and MUST be outside this repository.
 #
-# Resolved BEFORE the cd below, and against the caller's working directory, so that a relative
-# `REF_PROJ=../ref-proj` means what the caller meant rather than being silently reinterpreted
-# relative to the repository root.
-if [[ -n ${REF_PROJ:-} && ${REF_PROJ} != /* ]]; then
+# `ref-proj/` was deleted on 2026-08-04 and must never be re-created inside the tree. The reason is
+# `docs/ai-emulator-provenance-guardrails.md`: readable reference-emulator source plus an accuracy
+# objective is the trap, and a prose "use them as oracles only" instruction is not a firewall --
+# an unreadable path is. These scripts run the reference BINARIES and read their OUTPUT, which is
+# legitimate oracle use; nothing here reads their source, and nothing should.
+#
+# Resolved BEFORE the cd below, against the caller's working directory, so a relative REF_PROJ
+# means what the caller meant rather than being reinterpreted relative to the repository root.
+if [[ -z ${REF_PROJ:-} ]]; then
+    cat >&2 <<'EOF'
+REF_PROJ is not set.
+
+Reference-emulator clones live OUTSIDE this repository (and outside any path an AI agent can
+read). Point this script at them explicitly, e.g.:
+
+    REF_PROJ=$HOME/emu-references bash scripts/accuracysnes/crossval.sh
+
+There is deliberately no in-tree default any more -- see docs/ai-emulator-provenance-guardrails.md.
+EOF
+    exit 2
+fi
+if [[ ${REF_PROJ} != /* ]]; then
     REF_PROJ=$PWD/$REF_PROJ
 fi
 
@@ -37,7 +53,16 @@ cd "$(dirname "$0")/../.."
 
 ROM=tests/roms/AccuracySNES/build/accuracysnes.sfc
 HOST=${TMPDIR:-/tmp}/accuracysnes_lrcv
-REF_PROJ=${REF_PROJ:-ref-proj}
+# Refuse a reference path inside the repository: that is exactly the arrangement the guardrails
+# exist to prevent, and it must fail loudly rather than work quietly.
+_repo_root=$PWD
+case "$REF_PROJ/" in
+    "$_repo_root"/*)
+        echo "REF_PROJ ($REF_PROJ) is inside this repository." >&2
+        echo "Reference-emulator source must live OUTSIDE the tree -- docs/ai-emulator-provenance-guardrails.md §3." >&2
+        exit 2
+        ;;
+esac
 
 MESEN=$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
 SNES9X=$REF_PROJ/snes9x/libretro/snes9x_libretro.so

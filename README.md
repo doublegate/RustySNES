@@ -43,6 +43,16 @@ resync model.
 > no paid unlock**, in any build on any platform. The Android and iOS apps are free apps. A future
 > **free** store listing (no ads, no purchase) is possible but has no fixed version.
 
+> **Reference firewall — the project's highest-priority development rule.** RustySNES is
+> cross-validated against ares, bsnes, Mesen2/MesenCE and Snes9x, but those are **black-box
+> oracles**: run them, read their *output*, never read or reproduce their *source*. The `ref-proj/`
+> directory that used to hold local clones was **deleted on 2026-08-04** and must not be
+> re-created — a CI check fails the build if reference-emulator source appears in the tree. The
+> rules, the reasoning, and the remediation path are in
+> [`docs/ai-emulator-provenance-guardrails.md`](docs/ai-emulator-provenance-guardrails.md); an
+> **open provenance question about this project's own `v1.30.1` pass** is recorded honestly in
+> [`docs/provenance-open-question.md`](docs/provenance-open-question.md) rather than quietly fixed.
+
 Beyond reference accuracy, RustySNES is a real, playable emulation platform today: a native
 desktop shell (`winit` + `wgpu` + `cpal` + `egui`) boots real commercial ROMs with picture, sound,
 and control, alongside **11 cartridge coprocessors**, save states with a thumbnail 10-slot
@@ -330,7 +340,6 @@ crates/        Cargo workspace: the crates above
 docs/          Implementation specs, ADRs, the MkDocs handbook source, and STATUS.md
                 (single source of truth)
 ref-docs/      Immutable deep-research SNES hardware reference
-ref-proj/      Study clones of reference emulators (gitignored; bsnes/ares/Mesen2)
 tests/roms/    Committed permissive corpus + gitignored external/ (commercial dumps +
                 coprocessor firmware — never committed, ADR 0003)
 screenshots/   Committed boot-screenshot corpus + curated showcase/montage images

@@ -25,9 +25,14 @@ more battle-tested, and are the reason an accurate independent implementation is
 RustySNES has found exactly one defect in a reference emulator (§2), and the honest framing of that
 is *"a third opinion caught something"*, not *"we are better."*
 
-**Copyleft emulators were oracles, never sources.** No source code from any GPL-licensed emulator is
-incorporated into RustySNES. §4 explains how that claim is structured and where it was previously
-described wrongly.
+**Copyleft emulators were *intended* as oracles, never sources — and that intent is no longer stated
+as a certification.** An earlier revision of this document, and of `NOTICE`, asserted flatly that no
+GPL-licensed emulator's source code is incorporated. **That assertion is withdrawn** — not because
+it is known to be false, but because the party asserting it was the same automated pass that had
+just reworded the provenance comments it rested on. §4 explains the classification; **§4b records
+the open question**, and `provenance-open-question.md` records it in full. Establishing the answer
+needs a human, ideally an expert, reading the code against upstreams obtained outside this
+workspace.
 
 ## 2. Where this project advances, diverges, or independently re-derives
 
@@ -195,6 +200,26 @@ of the false MIT annotation stands regardless of that review, because it was wro
 **No comment was reworded from an accurate description of copying into a false claim of
 independence.** That transformation is falsification, not remediation, and where evidence was mixed
 the uncertainty is recorded above instead of resolved in this project's favour.
+
+## 4b. An open question about §4 itself
+
+**The pass that produced §4 may itself be an instance of the failure it was trying to fix.** On
+2026-08-04 the project adopted [`ai-emulator-provenance-guardrails.md`](ai-emulator-provenance-guardrails.md)
+as its highest-priority rule, and that document identifies *rewording honest "ported from X"
+comments* as the second, worse failure — the one that destroys the evidence rather than fixing the
+licence. §4 above describes doing exactly that at 39 sites, 10 of them naming **bsnes and Mesen2,
+both GPLv3**.
+
+This is **not** a retraction of §4's findings — the false "Mesen2 … (MIT)" annotation really was
+wrong, the ST018 uncertainty really was escalated rather than buried, and four ares source-path
+citations really were left in place as evidence. It is an acknowledgement that **the agent that
+reworded the comments is not the party that can certify the result**, and that the certification it
+wrote into `NOTICE` has accordingly been withdrawn.
+
+The full record, the exact `git` commands that recover every original comment, and what a
+resolution requires are in [`provenance-open-question.md`](provenance-open-question.md). The
+reference-emulator clones have since been removed from the workspace entirely, so the exposure
+cannot grow; but the question is open, and it needs a human.
 
 ## 5. Licence compliance
 

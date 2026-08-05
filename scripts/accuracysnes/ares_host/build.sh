@@ -5,7 +5,20 @@
 # recorded state of this blocker was "ares would need building", which turned out to be wrong.
 set -euo pipefail
 
-REF_PROJ=${REF_PROJ:-$PWD/ref-proj}
+# REF_PROJ is MANDATORY and must point OUTSIDE this repository -- ref-proj/ was deleted on
+# 2026-08-04 and must not be re-created (docs/ai-emulator-provenance-guardrails.md).
+#
+# NOTE this script COMPILES against ares' source, so unlike crossval.sh it is not pure oracle I/O.
+# That is permitted only because the source lives outside the agent-readable tree: a human builds
+# this host once, and the agent thereafter invokes the resulting BINARY. Do not relocate the ares
+# clone into the repository to make this easier.
+if [[ -z ${REF_PROJ:-} ]]; then
+    echo "REF_PROJ is not set. Point it at an out-of-tree checkout, e.g. REF_PROJ=\$HOME/emu-references" >&2
+    exit 2
+fi
+case "$REF_PROJ/" in
+    "$PWD"/*) echo "REF_PROJ ($REF_PROJ) is inside the repository -- keep references out of tree." >&2; exit 2 ;;
+esac
 ARES=$REF_PROJ/ares
 BUILD=${BUILD:-${TMPDIR:-/tmp}/ares-sfc-build}
 OUT=${OUT:-${TMPDIR:-/tmp}/ares_host}

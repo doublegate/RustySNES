@@ -154,12 +154,25 @@ flamegraph.svg
 # text — a local reference copy only, never vendored into the MIT/Apache tree. Mirrors the
 # posture RustyNES takes with its own /nesdev_wiki/.
 /snesdev_wiki/
+# REFERENCE-EMULATOR SOURCE MUST NOT EXIST IN THIS TREE.
+# ref-proj/ was DELETED on 2026-08-04. It used to hold readable clones of ares, bsnes, Mesen2,
+# MesenCE and snes9x, and that availability -- not any single edit -- is the whole trap described
+# in docs/ai-emulator-provenance-guardrails.md: an accuracy objective plus readable copyleft
+# source plus a capable agent, with no barrier in between.
+# These ignore rules are kept as a BACKSTOP so an accidental re-clone is never committed; they are
+# NOT permission to re-create the directory. Keep such clones OUTSIDE the repository and outside
+# any path an AI agent can read, and point the crossval scripts at them via REF_PROJ=<abs path>.
+# CI enforces this mechanically -- see the "reference firewall" step in .github/workflows/ci.yml.
 /ref-proj
 /ref-proj/
+/reference-emulators
+/reference-emulators/
+/vendor/emulators
+/vendor/emulators/
 
 # Third-party reference material held locally for consultation and NEVER redistributed.
 # Nintendo's SNES/Super Famicom developer documentation is Nintendo-copyrighted and was never
-# publicly licensed; it is kept here the same way ref-proj/ holds GPL emulator clones and
+# publicly licensed; it is kept here the same way tests/roms/external/ holds commercial dumps --
 # tests/roms/external/ holds commercial dumps — read, cite, re-express in our own words, never
 # vendor. Both a file and a directory of each name are ignored, because an earlier `/ref-proj/`
 # rule matched a directory but NOT a symlink and one got committed by accident.

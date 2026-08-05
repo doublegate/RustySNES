@@ -93,6 +93,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      # THE REFERENCE FIREWALL, ENFORCED MECHANICALLY.
+      #
+      # `docs/ai-emulator-provenance-guardrails.md` is this project's highest-priority development
+      # rule, and its central point is that a prose instruction is ADVISORY -- an agent can silently
+      # disregard it, and in this repository one did (see `docs/provenance-open-question.md`). The
+      # control that actually holds is the source not being reachable, proven by a machine.
+      #
+      # Reference-emulator source must never exist in this tree. Run them as black-box oracles from
+      # OUTSIDE the repo (`REF_PROJ=/abs/path/outside`); never vendor their source in.
+      - name: Reference firewall — no reference-emulator source in the tree
+        run: |
+          set -euo pipefail
+          # Directory conventions that would hold vendored emulator source.
+          if git ls-files | grep -Ei '^(ref-proj|reference-?emulators?|vendor/emulators)/'; then
+            echo "::error::reference-emulator source is committed in this tree — see docs/ai-emulator-provenance-guardrails.md §3"
+            exit 1
+          fi
+          # A tracked path that looks like an upstream emulator's own source tree. Scoped to source
+          # extensions so this project's own docs, which legitimately DISCUSS these emulators by
+          # name, never trip it.
+          if git ls-files | grep -Ei '/(mesen|mesence|bsnes|higan|ares|snes9x|fceux|nestopia|punes|blastem|sameboy|mame)/.*\.(c|cc|cpp|cxx|h|hpp|cs|m|mm)$'; then
+            echo "::error::what looks like reference-emulator source is committed — see docs/ai-emulator-provenance-guardrails.md §3"
+            exit 1
+          fi
+          echo "ok: no reference-emulator source in the tree"
+
       # fmt/clippy only ever check the HOST target here (no `--target` is ever passed to either
       # command in this job) — installing the wasm32/thumbv7em cross targets bought nothing but
       # setup time on every single PR push. Only `no_std` (which actually cross-compiles) needs

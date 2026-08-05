@@ -35,14 +35,31 @@ they are documentation.
   - The published Game Genie and Pro Action Replay code formats.
 
 ================================================================================
-2. REFERENCE EMULATORS (BEHAVIOURAL ORACLES ONLY -- NO CODE INCORPORATED)
+2. REFERENCE EMULATORS (INTENDED AS BEHAVIOURAL ORACLES -- SEE THE RETRACTION)
 ================================================================================
 
 RustySNES is cross-validated by running reference emulators and comparing
 observable behaviour: register reads, cycle counts, framebuffer hashes, and the
 pass/fail verdicts of the AccuracySNES test cartridge. That is oracle use.
 
-  NO SOURCE CODE FROM ANY GPL-LICENSED EMULATOR IS INCORPORATED INTO RUSTYSNES.
+  ON THAT CLAIM -- RETRACTED AS WRITTEN, 2026-08-04.
+
+  An earlier revision of this file asserted flatly that no source code from any GPL-licensed
+  emulator is incorporated into RustySNES. That assertion is WITHDRAWN. Not because it is known
+  to be false, but because it was a self-certification this project is not in a position to
+  make: it was produced by the same automated pass that had just reworded ~39 in-source
+  provenance citations, several of which named bsnes and Mesen2 (both GPLv3).
+
+  The honest status is: the intent throughout has been oracle-only use, hardware behaviour
+  implemented from public documentation; the reference-emulator sources were nonetheless
+  readable in this workspace until 2026-08-04, and whether any site is genuinely derived has
+  NOT been established by an independent expert. See docs/provenance-open-question.md for the
+  full account, the exact git commands that recover the original comments, and what a
+  resolution requires.
+
+  The reference-emulator clones have since been REMOVED from this workspace entirely, and
+  docs/ai-emulator-provenance-guardrails.md is now the project's highest-priority development
+  rule, so the exposure cannot grow from here.
 
   Reference    License                            Role
   -----------  ---------------------------------  --------------------------
@@ -80,9 +97,18 @@ satisfying a permissive notice costs nothing while leaving no ambiguity.
   OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
   CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-Reference emulator source trees are NOT distributed with RustySNES. They live
-under ref-proj/, which is gitignored, and are cloned locally by a developer who
-wants to run the cross-validation.
+Reference emulator source trees are NOT distributed with RustySNES, and as of
+2026-08-04 they are no longer present in this workspace at all: the ref-proj/
+directory that used to hold local clones has been REMOVED, and re-creating it is
+forbidden by docs/ai-emulator-provenance-guardrails.md, this project's
+highest-priority development rule.
+
+A developer who wants to run the cross-validation keeps those clones OUTSIDE the
+repository and outside any path an AI agent can read, and points the scripts at
+them with REF_PROJ=/path/outside/the/repo. The agent may invoke the built
+binaries and read their OUTPUT; it may not open their source. That firewall is
+the control -- the prose instruction alone was not enough, which is why the
+source is gone rather than merely discouraged.
 
 ================================================================================
 3. INCORPORATED THIRD-PARTY COMPONENTS (PERMISSIVELY LICENSED)

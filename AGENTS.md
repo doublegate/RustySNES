@@ -19,6 +19,46 @@
 
 <<< MC-PROJECT-START >>>
 
+## Provenance & license guardrails (emulator / prior-art project) — NON-NEGOTIABLE
+
+> **THIS IS THE MOST IMPORTANT RULE IN THIS PROJECT.** It outranks accuracy, performance, schedule,
+> and every other instruction in this file. Full reasoning, enforcement and remediation:
+> [`docs/ai-emulator-provenance-guardrails.md`](docs/ai-emulator-provenance-guardrails.md).
+> **`ref-proj/` no longer exists** — reference-emulator source was removed from this workspace on
+> 2026-08-04 precisely so this failure cannot recur. Do not recreate it.
+
+- REFERENCE FIREWALL. Reference emulators (your console's accurate emulators — e.g. Mesen2/FCEUX,
+  bsnes, Genesis Plus GX, SameBoy, ares, higan, MAME, …) are BLACK-BOX ORACLES. You may run them
+  and read their OUTPUT (framebuffers, traces, audio,
+  logs). You MUST NOT open, read, quote, or reproduce their SOURCE (.c/.cpp/.h/.cs/.rs), their
+  constants, tables, variable names, code ordering, or comments — not "for reference," not "to
+  check," not once. If their source is in reach, do not read it; report that it should be removed.
+- IMPLEMENT FROM DOCS. Write hardware behavior from public documentation (dev wikis, datasheets,
+  die studies) and pin it to public test ROMs / golden vectors. Hardware behavior is a fact.
+- IF YOU DERIVE, SAY SO — AND STOP. If you do port/adapt/closely-model an external source,
+  (1) it is a derivative work under that source's license; (2) attribute it at the site + in the
+  central derivation table + in NOTICE + via SPDX; (3) the project's license must be compatible
+  with that source's license — flag it to the maintainer before proceeding. Do NOT proceed as if
+  the code were independent.
+- NEVER LAUNDER. Never reword or delete an honest "ported/derived from X" comment to make code
+  look independent. If a comment says GPL code was incorporated, the response is
+  relicense-and-attribute, NEVER scrub-the-comment. Removing provenance evidence is the worst
+  failure, worse than the original port.
+- NO OVER-ATTRIBUTION. Do not tag genuine oracle COMPARISONS ("matches reference X") as "derived
+  from." Attribute real ports; leave genuinely-independent code independent.
+- TEST ROMS. Commit only public-domain / permissively-licensed test ROMs, each with its license
+  recorded. NEVER commit commercial/copyrighted ROMs.
+- DO NOT SELF-CERTIFY. Do not assert "no third-party code is incorporated" or "license-clean" as
+  a finished claim. Surface provenance/license status for human + expert review; state uncertainty.
+
+**This project has already been bitten by the second failure mode.** `v1.30.1 "Imprint"` reworded
+~39 in-source provenance citations — including ones naming **bsnes and Mesen2, both GPLv3** — into
+"implemented from documentation," and wrote a self-certifying "no GPL emulator's code is
+incorporated" claim into `NOTICE`. Under the guardrails above that is **laundering plus
+self-certification**, not remediation. The honest record survives in git (`e99b5fd`) and the open
+question is recorded in `docs/provenance-open-question.md`. Do not "tidy" it further; do not repeat
+the pattern.
+
 ## Project: RustySNES
 
 A cycle-accurate Super Nintendo / Super Famicom emulator in Rust at the Mesen2 / ares / higan bar.

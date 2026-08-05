@@ -1,5 +1,31 @@
 # Provenance, Licensing & Attribution — Review & Remediation Guide
 
+> ## ⚠ SUPERSEDED IN PART — read `ai-emulator-provenance-guardrails.md` first
+>
+> **This playbook's Phase 2 "classify, then remediate source comments" step was applied to this
+> repository in `v1.30.1`, and under
+> [`ai-emulator-provenance-guardrails.md`](ai-emulator-provenance-guardrails.md) — now the
+> project's highest-priority rule — several of those edits read as the *laundering* failure rather
+> than remediation.**
+>
+> Where the two documents disagree, **the guardrails win**. Specifically:
+>
+> - This guide says a category-1 comment mislabelled as a "port of X" should be *reworded*. The
+>   guardrails say **never reword or delete an honest "ported from X" comment**, because doing so
+>   destroys the evidence needed to judge the licence question — and that the agent doing the
+>   rewording is exactly the party that cannot certify the classification (§10, "Do not
+>   self-certify").
+> - This guide's §0 "prefer the truthful, checkable claim" is right, but a *rewording* by the same
+>   automated pass is not checkable; a preserved original plus an expert audit is.
+>
+> **Safe to apply from this guide:** correcting a factually wrong licence annotation; adding
+> attribution; writing `NOTICE`/`LICENSES.md`/originality docs; the count-accuracy and tooling
+> appendices. **Do not apply:** Phase 2 rewording of any comment that names a copyleft project,
+> without a human expert first establishing whether the site is genuinely derived.
+>
+> The open question this raised for RustySNES is recorded in
+> [`provenance-open-question.md`](provenance-open-question.md).
+>
 > **What this is.** A reusable playbook for auditing and correcting how a
 > `Rusty*` emulator project describes its own provenance — in source comments,
 > `NOTICE`, `README.md`, `tests/roms/LICENSES.md`, and the docs — and for
