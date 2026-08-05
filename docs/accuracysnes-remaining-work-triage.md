@@ -1,6 +1,6 @@
 # AccuracySNES — triage of the 82 uncovered rows
 
-**Coverage at time of writing: 361 of 443** (304 on-cart + 55 scene + 2 host). This document sorts
+**Coverage: 362 of 443** as of `D1.12` landing (was 361 when this was written) (304 on-cart + 55 scene + 2 host). This document sorts
 the remaining **82** into what can actually be done, so the next attempt spends its effort on the
 55 that are reachable instead of rediscovering why the other 27 are not.
 
@@ -19,7 +19,7 @@ than inventing one.
 | **1 — Genuinely uncoverable** | **10** | No test can exist. Enumerated and scored as such; do not attempt. |
 | **2 — Attempted and withdrawn** | **9** | Tried, failed for a *recorded* reason. Do not blind-retry; the reason is the spec for any new attempt. |
 | **3 — Reference disagreement** | **8** | The references do not agree, so ADR 0013 forbids blessing a golden. Variant sets, not gaps. |
-| **4 — Reachable** | **55** | The real target. Ordered by what machinery each needs. |
+| **4 — Reachable** | **55** (1 landed) | The real target. Ordered by what machinery each needs. |
 | | **82** | |
 
 ---
@@ -70,7 +70,7 @@ a render the references agree on"* cannot be satisfied in either direction. Reco
 The real target, grouped by the machinery each cluster needs. **Order matters**: the clusters near
 the top need nothing new.
 
-### 4a — needs no new machinery (15)
+### 4a — needs no new machinery (15; **1 landed, 14 left**)
 
 `B2.02`, `B2.03` — *"both landed in the emulator; the cart rows are the remaining half."* The
 dot-model work shipped in `v1.28.0`; these are the on-cart assertions for it. Note the **cart-ID vs
@@ -80,8 +80,14 @@ dossier-ID** trap: these dossier rows are not the cart tests of the same name.
 hint the row may belong in tier 2 once someone looks properly; it is left here because no attempt
 was ever recorded, and a row nobody tried is not a row that failed.
 
-`B4.01`, `B4.10`, `C1.09`, `C3.10`, `C6.07`, `C7.07`, `C8.09`, `C10.03`, `D1.12` (recorded as
-*"GOLDEN, not scored"* — may only need promoting), `E3.07`, `E4.07`, `E6.03`, `E6.05`.
+~~`D1.12`~~ — **LANDED**, golden-not-scored, cross-validated on two references. Its instrument
+turned out **unable to separate anomie's alignment term from its own `nop` skew**; that is
+recorded in the test's doc comment rather than papered over, and the row records the aggregate
+exactly as the plan asked. Isolating the alignment term needs a sub-CPU-cycle skew source the
+cart does not have — a separate row, not a fix to this one.
+
+`B4.01`, `B4.10`, `C1.09`, `C3.10`, `C6.07`, `C7.07`, `C8.09`, `C10.03`, `E3.07`, `E4.07`,
+`E6.03`, `E6.05`.
 
 ### 4a — starting analysis (done 2026-08-05, authoring not yet begun)
 

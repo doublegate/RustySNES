@@ -35,6 +35,7 @@ pub fn all() -> Vec<Test> {
         d1_11(),
         d1_08(),
         d1_03(),
+        d1_12(),
         d1_04(),
         d2_05(),
         d2_06(),
@@ -1603,6 +1604,110 @@ fn d2_06() -> Test {
 /// depends on where in the CPU's cycle the `$420B` write lands. That alignment is exactly the part
 /// no two implementations need agree on to be equally correct, so the number is recorded rather
 /// than asserted — the same treatment `B4.14` gets, for the same reason.
+/// `D1.12` — CPU timing before DMA start, recorded as an aggregate and **asserted nowhere**.
+///
+/// anomie decomposes the delay between the `$420B` write and the first transferred byte into four
+/// terms: one more CPU cycle after the write (6/8/12 clocks, set by the *next* access's speed),
+/// then 2-8 clocks aligning the DMA to a multiple of 8, then 8 clocks of whole-transfer overhead,
+/// then 8 per active channel. Only the last two are constants.
+///
+/// **Why this is a golden and not a scored row, and why that is not timidity.** Mesen2
+/// (`SnesDmaController`), ares (`sfc/cpu/timing.cpp`) and bsnes all implement exactly that
+/// decomposition — but all three are downstream of *the same anomie document*, so their agreement
+/// is **not independent corroboration**, and a scored assertion would be this project checking
+/// three copies of one source against a fourth. `docs/accuracysnes-plan.md` says it plainly:
+/// record the measured aggregate, assert nothing.
+///
+/// **What makes it distinct from [`d1_03`]**, which already records a one-byte DMA absolutely:
+/// that row takes a single reading, so a core with a *phase-dependent* startup cost and one with a
+/// constant cost are indistinguishable in it. This one sweeps the entry phase — 0-3 extra `nop`s
+/// before the trigger — and records all four, so the phase dependence itself is on the record.
+///
+/// **What this does NOT do, measured rather than assumed.** The four readings came back
+/// `222 / 225 / 229 / 232` dots, i.e. steps of `3, 4, 3`. A `nop` is two CPU cycles — roughly
+/// 12-16 master clocks, 3-4 dots — so **the spread is dominated by the `nop`s themselves**, and
+/// dot-quantising a ~13-clock `nop` produces exactly the same ±1 wobble that anomie's 2-8 clock
+/// alignment term would. This instrument therefore **cannot separate the alignment term from its
+/// own skew**, and an earlier draft of this comment claiming it could was wrong.
+///
+/// That does not make the row vacuous — it makes it precisely what the plan asked for. Four
+/// cross-validated aggregates and their spread are recorded; **no claim is made about which term
+/// produced them.** Isolating the alignment term needs a skew source finer than one CPU cycle,
+/// which the cart does not have; that is a separate row, not a fix to this one.
+fn d1_12() -> Test {
+    let mut a = Asm::new();
+    data_table(&mut a);
+    a.c("One-byte DMA, measured at four entry phases one CPU cycle apart.");
+    a.l("rep #$30");
+    a.l("phk");
+    a.l("plb");
+    a.l("sep #$20");
+    a.l("lda #$08");
+    a.l("sta $4300         ; fixed source, mode 0");
+    a.l("lda #$22");
+    a.l("sta $4301         ; CGDATA — harmless, and rebuilt before any scene");
+
+    for (phase, slot) in (0u8..4).zip(291u16..) {
+        a.c(&format!(
+            "--- phase {phase}: {phase} nop(s) of entry skew ---"
+        ));
+        a.l("sep #$20");
+        a.l("stz $2121");
+        source_from_table(&mut a, 1);
+        a.measure_begin_far();
+        for _ in 0..phase {
+            a.l("nop");
+        }
+        a.l("lda #$01");
+        a.l("sta $420B");
+        a.measure_end_far();
+        a.measure_result();
+        // Keep the two extremes so the spread can be published as a number rather than left for
+        // a reader to difference by hand. $7E00D0/D2 -- verified free by enumerating every
+        // $7E00xx literal in the generator; $7E00B0 and $7E00C0 are both already owned,
+        // and borrowing another test's scratch is how a golden starts reporting someone else's
+        // leftovers.
+        if phase == 0 {
+            a.l("sta f:$7E00D0   ; phase 0: the spread's baseline");
+        }
+        if phase == 3 {
+            a.l("sta f:$7E00D2   ; phase 3: the other end of the alignment window");
+        }
+        a.record(
+            slot,
+            &format!("D1.12 one-byte DMA at entry phase {phase} (dots)"),
+        );
+    }
+
+    a.c("Publish the spread as a number so a reader need not difference four by hand. NOTE it is");
+    a.c("dominated by the nop skew, not by the alignment term -- see this test's doc comment.");
+    a.l("rep #$30");
+    a.l("lda f:$7E00D2");
+    a.l("sec");
+    a.l("sbc f:$7E00D0");
+    a.record(
+        295,
+        "D1.12 phase 3 minus phase 0 (dots; mostly nop skew, NOT the alignment term)",
+    );
+
+    a.l("sep #$20");
+    a.l("lda #$01");
+    a.l("sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel");
+    a.l("jml test_restore");
+    a.finish(
+        "D1.12",
+        'D',
+        "CPU cycle before DMA",
+        Provenance::Contested(
+            "anomie decomposes the pre-DMA delay into a variable CPU cycle plus a 2-8 clock \
+             alignment; Mesen2, ares and bsnes all implement that decomposition but are all \
+             downstream of the same document, so their agreement is not independent",
+        ),
+        Kind::Golden,
+        None,
+    )
+}
+
 fn d1_03() -> Test {
     let mut a = Asm::new();
     data_table(&mut a);

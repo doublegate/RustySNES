@@ -1789,6 +1789,12 @@ Provenance: **Documented** (SNESdev Wiki, DMA timing; fullsnes). Kind: golden ve
 
 No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
 
+### D1.12 — CPU cycle before DMA
+
+Provenance: **Contested** (anomie decomposes the pre-DMA delay into a variable CPU cycle plus a 2-8 clock alignment; Mesen2, ares and bsnes all implement that decomposition but are all downstream of the same document, so their agreement is not independent). Kind: golden vector, never scored.
+
+No failure codes — this is a **golden vector**. It cannot fail: it records what it observed and is excluded from the pass rate. Where the observation fits in a byte it goes in the verdict as a variant code (`(variant << 1) | 1`); where it does not — a dot count, say — the verdict is a plain pass and the value goes to the measurement channel at `$7E:E200`, which the host harness reads and prints. See the test's entry in `SOURCE_CATALOG.tsv` for its provenance tier and the reason it records rather than asserts.
+
 ### D1.04 — DMA channel priority
 
 Provenance: **Documented** (SNESdev Wiki, DMA; fullsnes). Kind: scored.

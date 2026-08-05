@@ -30986,6 +30986,176 @@ CATALOG_IMPL = 1
     jml test_restore
 .endproc
 
+; D1.12 — CPU cycle before DMA
+; provenance: Contested (anomie decomposes the pre-DMA delay into a variable CPU cycle plus a 2-8 clock alignment; Mesen2, ares and bsnes all implement that decomposition but are all downstream of the same document, so their agreement is not independent)
+.proc test_d1_12
+    .a16
+    .i16
+    bra @body
+@data:
+    .byte $11, $22, $33, $44
+@body:
+    ; One-byte DMA, measured at four entry phases one CPU cycle apart.
+    rep #$30
+    .a16
+    .i16
+    phk
+    plb
+    sep #$20
+    .a8
+    lda #$08
+    sta $4300         ; fixed source, mode 0
+    lda #$22
+    sta $4301         ; CGDATA — harmless, and rebuilt before any scene
+    ; --- phase 0: 0 nop(s) of entry skew ---
+    sep #$20
+    .a8
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E00D0   ; phase 0: the spread's baseline
+    ; record slot 291: D1.12 one-byte DMA at entry phase 0 (dots)
+    sta f:$7EE446
+    ; --- phase 1: 1 nop(s) of entry skew ---
+    sep #$20
+    .a8
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    nop
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 292: D1.12 one-byte DMA at entry phase 1 (dots)
+    sta f:$7EE448
+    ; --- phase 2: 2 nop(s) of entry skew ---
+    sep #$20
+    .a8
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    nop
+    nop
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    ; record slot 293: D1.12 one-byte DMA at entry phase 2 (dots)
+    sta f:$7EE44A
+    ; --- phase 3: 3 nop(s) of entry skew ---
+    sep #$20
+    .a8
+    stz $2121
+    rep #$30
+    .a16
+    .i16
+    ldx #.loword(@data)
+    stx $4302         ; A-bus address = this test's data table
+    sep #$20
+    .a8
+    phk
+    pla
+    sta $4304         ; A-bus bank = this bank
+    rep #$30
+    .a16
+    .i16
+    ldx #$0001
+    stx $4305         ; byte count
+    sep #$20
+    .a8
+    jsl hv_begin_far
+    nop
+    nop
+    nop
+    lda #$01
+    sta $420B
+    jsl hv_end_far
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E0048     ; V_H1 = elapsed dots
+    sta f:$7E00D2   ; phase 3: the other end of the alignment window
+    ; record slot 294: D1.12 one-byte DMA at entry phase 3 (dots)
+    sta f:$7EE44C
+    ; Publish the spread as a number so a reader need not difference four by hand. NOTE it is
+    ; dominated by the nop skew, not by the alignment term -- see this test's doc comment.
+    rep #$30
+    .a16
+    .i16
+    lda f:$7E00D2
+    sec
+    sbc f:$7E00D0
+    ; record slot 295: D1.12 phase 3 minus phase 0 (dots; mostly nop skew, NOT the alignment term)
+    sta f:$7EE44E
+    sep #$20
+    .a8
+    lda #$01
+    sta f:V_TEST_RESULT   ; golden: the numbers are in the measurement channel
+    jml test_restore
+.endproc
+
 ; D1.04 — DMA channel priority
 ; provenance: Documented (SNESdev Wiki, DMA; fullsnes)
 .proc test_d1_04
@@ -36066,7 +36236,7 @@ apu_prog_121:
 .export _test_flags
 
 _test_count:
-    .word 346
+    .word 347
 
 ; Entry points, 24-bit: test bodies no longer all live in bank $00.
 _test_entries:
@@ -36248,6 +36418,7 @@ _test_entries:
     .faraddr test_d1_11
     .faraddr test_d1_08
     .faraddr test_d1_03
+    .faraddr test_d1_12
     .faraddr test_d1_04
     .faraddr test_d2_05
     .faraddr test_d2_06
@@ -36597,6 +36768,7 @@ _test_flags:
     .byte $01   ; D1.11
     .byte $02   ; D1.08
     .byte $02   ; D1.03
+    .byte $02   ; D1.12
     .byte $01   ; D1.04
     .byte $01   ; D2.05
     .byte $01   ; D2.06
@@ -36946,6 +37118,7 @@ _test_names:
     .addr @n_d1_11
     .addr @n_d1_08
     .addr @n_d1_03
+    .addr @n_d1_12
     .addr @n_d1_04
     .addr @n_d2_05
     .addr @n_d2_06
@@ -37648,6 +37821,9 @@ _test_names:
 @n_d1_03:
     .byte 20
     .byte "DMA startup overhead"
+@n_d1_12:
+    .byte 20
+    .byte "CPU cycle before DMA"
 @n_d1_04:
     .byte 20
     .byte "DMA channel priority"
@@ -38404,7 +38580,7 @@ _page_len:
     .byte 5
     .byte 1
     .byte 10
-    .byte 5
+    .byte 6
     .byte 6
     .byte 7
     .byte 10
@@ -38459,27 +38635,27 @@ _page_off:
     .word 195
     .word 196
     .word 206
-    .word 211
-    .word 217
-    .word 224
-    .word 234
-    .word 238
-    .word 248
-    .word 252
-    .word 262
+    .word 212
+    .word 218
+    .word 225
+    .word 235
+    .word 239
+    .word 249
+    .word 253
     .word 263
-    .word 269
-    .word 271
-    .word 281
-    .word 285
-    .word 295
-    .word 298
-    .word 308
-    .word 315
-    .word 322
-    .word 332
-    .word 335
-    .word 345
+    .word 264
+    .word 270
+    .word 272
+    .word 282
+    .word 286
+    .word 296
+    .word 299
+    .word 309
+    .word 316
+    .word 323
+    .word 333
+    .word 336
+    .word 346
 
 _page_tests:
     .word 0
@@ -38533,7 +38709,6 @@ _page_tests:
     .word 70
     .word 71
     .word 72
-    .word 311
     .word 312
     .word 313
     .word 314
@@ -38568,6 +38743,7 @@ _page_tests:
     .word 343
     .word 344
     .word 345
+    .word 346
     .word 30
     .word 31
     .word 32
@@ -38658,7 +38834,7 @@ _page_tests:
     .word 151
     .word 152
     .word 154
-    .word 282
+    .word 283
     .word 135
     .word 137
     .word 138
@@ -38693,20 +38869,20 @@ _page_tests:
     .word 176
     .word 177
     .word 178
+    .word 179
     .word 169
     .word 170
     .word 171
     .word 172
-    .word 179
     .word 180
     .word 181
-    .word 229
+    .word 182
     .word 230
     .word 231
     .word 232
     .word 233
     .word 234
-    .word 182
+    .word 235
     .word 183
     .word 184
     .word 185
@@ -38714,49 +38890,49 @@ _page_tests:
     .word 187
     .word 188
     .word 189
-    .word 200
-    .word 214
+    .word 190
+    .word 201
     .word 215
-    .word 222
+    .word 216
     .word 223
     .word 224
-    .word 190
+    .word 225
     .word 191
     .word 192
     .word 193
-    .word 202
+    .word 194
     .word 203
-    .word 218
+    .word 204
     .word 219
     .word 220
     .word 221
-    .word 279
+    .word 222
     .word 280
     .word 281
-    .word 283
-    .word 194
+    .word 282
+    .word 284
     .word 195
-    .word 201
-    .word 216
+    .word 196
+    .word 202
     .word 217
-    .word 225
+    .word 218
     .word 226
     .word 227
     .word 228
-    .word 284
+    .word 229
     .word 285
-    .word 196
+    .word 286
     .word 197
-    .word 275
+    .word 198
     .word 276
     .word 277
     .word 278
-    .word 198
+    .word 279
     .word 199
-    .word 204
+    .word 200
     .word 205
     .word 206
-    .word 240
+    .word 207
     .word 241
     .word 242
     .word 243
@@ -38766,23 +38942,23 @@ _page_tests:
     .word 247
     .word 248
     .word 249
-    .word 286
-    .word 207
+    .word 250
+    .word 287
     .word 208
     .word 209
     .word 210
     .word 211
     .word 212
-    .word 235
+    .word 213
     .word 236
-    .word 250
+    .word 237
     .word 251
     .word 252
     .word 253
     .word 254
-    .word 213
-    .word 237
     .word 255
+    .word 214
+    .word 238
     .word 256
     .word 257
     .word 258
@@ -38794,17 +38970,17 @@ _page_tests:
     .word 264
     .word 265
     .word 266
-    .word 272
+    .word 267
     .word 273
     .word 274
-    .word 238
+    .word 275
     .word 239
-    .word 267
+    .word 240
     .word 268
     .word 269
     .word 270
     .word 271
-    .word 287
+    .word 272
     .word 288
     .word 289
     .word 290
@@ -38828,3 +39004,4 @@ _page_tests:
     .word 308
     .word 309
     .word 310
+    .word 311
