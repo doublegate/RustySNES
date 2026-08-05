@@ -83,6 +83,40 @@ was ever recorded, and a row nobody tried is not a row that failed.
 `B4.01`, `B4.10`, `C1.09`, `C3.10`, `C6.07`, `C7.07`, `C8.09`, `C10.03`, `D1.12` (recorded as
 *"GOLDEN, not scored"* — may only need promoting), `E3.07`, `E4.07`, `E6.03`, `E6.05`.
 
+### 4a — starting analysis (done 2026-08-05, authoring not yet begun)
+
+Three findings from reading the dossier and plan for the first candidates. **Each resolves the
+cart-ID vs dossier-ID ambiguity explicitly**, because that has bitten here before.
+
+**`D1.12` — best-specified candidate, and its blocker has cleared.** Dossier row is *"CPU timing
+before DMA start (MMPR)"*. The plan records it as **GOLDEN, not scored** — *"record the measured
+aggregate; assert nothing"* — because the delay is not a constant (one CPU cycle after the `$420B`
+write at 6/8/12 clocks set by the *next* access's speed, then 2–8 aligning to a multiple of 8, then
+8 whole-transfer, then 8 per channel). Crucially the plan also says it was *"blocked in practice
+until `T-06-A`: the aggregate is a clock-domain quantity and the cart reads dots"* — **`T-06-A`
+landed in `v1.29.0`**, so that blocker is gone.
+
+Two cautions that are part of the row, not obstacles to it: Mesen2, ares and bsnes all implement
+this from **the same anomie document**, so their agreement is **not independent corroboration** —
+which is exactly why the plan says record-don't-assert. And there is no cart test mapped to `D1.12`
+today (`grep '"D1.12"' gen/src/dossier.rs` → nothing), so this is genuinely new authoring.
+
+**`B2.02`/`B2.03` — the emulator half shipped; the cart half is delicate.** Dossier `B2.02` is the
+short scanline (line `$F0` = 1360 clocks on alternating non-interlace frames) and `B2.03` the long
+one (PAL interlace field=1, `V=311` = 1368 clocks / 341 dots). Both are modelled in the emulator
+since `v1.28.0`. The cart-side assertion has to observe a **4-master-clock difference inside a
+357,366-clock frame** — far below what `B2.07`/`B2.08`'s ±2% APU-referenced frame-rate instrument
+can see. The plausible shape is a *differential*: `$213F` bit 7 gives the frame parity, so latch the
+raw H counter at a fixed `V` **after** line 240 on both parities and compare — the short line should
+displace everything after it by exactly one dot. That lands squarely in the dot-domain and
+sawtooth-phase trap territory this project has been caught by repeatedly, so it wants a fresh
+session and its own injection design, not a tail-end attempt.
+
+**`B2.09` — likely tier 2, not tier 4.** The dossier row itself says the picture-window edges are
+*"not CPU-observable directly; reachable through the framebuffer oracle once the dot-resolution
+compositor lands."* The compositor landed, so it is a **scene** row rather than an on-cart one —
+and scene blessing needs the two-reference agreement that was only restored today.
+
 ### 4b — the WRAM-trail family (7)
 
 `D2.01`, `D2.02`, `D2.10`, `D2.11-14`, `D2.15`, `D2.16`, `D2.17`.
