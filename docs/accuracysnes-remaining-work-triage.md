@@ -17,9 +17,9 @@ than inventing one.
 | Tier | Rows | Meaning |
 |---|---:|---|
 | **1 — Genuinely uncoverable** | **10** | No test can exist. Enumerated and scored as such; do not attempt. |
-| **2 — Attempted and withdrawn** | **9** | Tried, failed for a *recorded* reason. Do not blind-retry; the reason is the spec for any new attempt. |
+| **2 — Attempted and withdrawn** | **10** | Tried, failed for a *recorded* reason. Do not blind-retry; the reason is the spec for any new attempt. |
 | **3 — Reference disagreement** | **8** | The references do not agree, so ADR 0013 forbids blessing a golden. Variant sets, not gaps. |
-| **4 — Reachable** | **55** (1 landed) | The real target. Ordered by what machinery each needs. |
+| **4 — Reachable** | **54** (1 landed; `C7.07` moved to tier 2) | The real target. Ordered by what machinery each needs. |
 | | **82** | |
 
 ---
@@ -51,6 +51,7 @@ attempt — a retry that does not address it will fail the same way.
 | `E9.11` | Separating the models means computing the expected answer from our own arithmetic and asserting it. |
 | `C7.12` | Written as a scene; produced three hashes on three emulators. Root cause is **host-side**: Mesen2's headless runner does not deterministically associate a rendered frame with the `R_SCENE` value it read. The cart-side field gate landed; the missing half is not ours. |
 | `C10.04` | Blocked by the same pixel-exclusion rule that *unblocked* `C5.15`. |
+| `C7.07` | Attempt 1 authored and **reverted the same day**. Built as "20 in-range 16x16 sprites, only sprite 0 on-screen, rest at X = -128 (fully off-screen)" versus a 4-sprite control, expecting the errata to raise Time Over from off-screen tiles. **RustySNES failed code 2 — and so did snes9x, identically**, which is this project's broken-test signature rather than a bug found. Both cull fully-off-screen sprites before counting the budget (`render.rs`'s `compute_over_flag_dots`, the `obj.x > 256 && obj.x + w - 1 < 512` cull). The dossier wording — *"**first** sprite 16x16+ at X=0-255 **with others** at negative X"* — describes an **interaction** that this configuration does not reproduce. A retry must start from what that interaction actually is, not from "more off-screen sprites". |
 | `D2.08` | Attempt 1 authored, cross-validated, **reverted** — snes9x failed identically, which is the broken-test signature. Its timing is entangled with `D2.09`'s stale-table quirk; start fresh and debug the `A=0` anomaly first. |
 
 ## Tier 3 — reference disagreement (8)
@@ -70,7 +71,7 @@ a render the references agree on"* cannot be satisfied in either direction. Reco
 The real target, grouped by the machinery each cluster needs. **Order matters**: the clusters near
 the top need nothing new.
 
-### 4a — needs no new machinery (**1 landed; 2 genuinely left, 5 reclassified, 1 suspect**)
+### 4a — needs no new machinery (**1 landed; 1 genuinely left (`B4.10`), 5 reclassified, 1 suspect, 1 withdrawn**)
 
 `B2.02`, `B2.03` — *"both landed in the emulator; the cart rows are the remaining half."* The
 dot-model work shipped in `v1.28.0`; these are the on-cart assertions for it. Note the **cart-ID vs
@@ -103,27 +104,7 @@ the row actually needs.** Checking each against the coverage table and the dossi
 short-line model that shipped in `v1.28.0`; the field-parity gate to reach a short line already
 exists.
 
-`C7.07` — *"Time Over false positive"* `[ERRATA]`: first sprite 16x16+ at X=0-255 with others at
-negative X. Same family as `C7.05`/`C7.06`, so the sprite/flag instrument is already built.
-**Design worked out 2026-08-05, ready to author:**
-
-- Reuse `setup_tile_budget_sprites`'s shape and `arm_over_irq_on_line`/`assert_handler_ran`
-  verbatim; the far-IRQ shim (`V_IRQ_VEC_FAR` → `irq_far_shim`) is already wired for group C.
-- **Negative X is the high table, not the low one.** Each high-table byte covers four sprites at
-  two bits each: bit 1 is the size select, bit 0 is X bit 8. The existing helper writes `$AA`
-  (`10101010` — large, X bit 8 clear). Writing **`$FF`** makes the same four sprites large *and*
-  sets X bit 8, so a low-table `X = $F8` becomes `$1F8` = **-8**: the sprite hangs off the left
-  edge.
-- The assertion is the errata: those off-screen-left sprites **still consume the tile budget**, so
-  Time Over sets on a line whose *visible* tile count is far under 34.
-- **The control is what makes it non-vacuous**, and it is the whole test: the identical sprite set
-  with X bit 8 **clear** (all on-screen) must also set Time Over — proving the flag responds to the
-  tile budget rather than to the off-screen placement. Then a *third* arm with few enough sprites
-  must leave it clear, proving the instrument can read "not set" at all. Without that third arm the
-  row cannot distinguish the errata from a core that raises Time Over unconditionally.
-- Inject at the site the row names: make range evaluation **skip** X-bit-8 sprites. Time Over must
-  then read clear in the negative-X arm and stay set in the on-screen arm; if both move, the
-  attribution is wrong.
+~~`C7.07`~~ — **ATTEMPTED 2026-08-05 AND WITHDRAWN. Now tier 2; see its row there.**
 
 `B4.01` — *"/NMI asserts at **H = 0.5**"*. Half-dot precision against an instrument that reads
 whole dots; likely needs the same clock-domain instrument `A5.20`/`B1.05` are parked on. Treat as
