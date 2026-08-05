@@ -37,6 +37,11 @@ resync model.
 > [Acknowledgments](#acknowledgments) for the references and components it builds on. Accuracy
 > claims are meant to be *checked* by running the public suites, not taken on faith; comparisons to
 > other emulators are comparisons, not a claim of being "better."
+>
+> **Non-commercial, permanently:** RustySNES is open-source and income-free
+> ([ADR 0015](docs/adr/0015-rustysnes-is-permanently-non-commercial.md)) — **no ads, no tracking,
+> no paid unlock**, in any build on any platform. The Android and iOS apps are free apps. A future
+> **free** store listing (no ads, no purchase) is possible but has no fixed version.
 
 Beyond reference accuracy, RustySNES is a real, playable emulation platform today: a native
 desktop shell (`winit` + `wgpu` + `cpal` + `egui`) boots real commercial ROMs with picture, sound,
@@ -694,8 +699,9 @@ Then the **mobile ladder** (Phases 1-5), a performance rung, and a UI/UX pass:
   `macos-latest` CI, not just a cross-compile.
 - **`v1.17.0 "Parity"`** — save/load state on both mobile shells; found and fixed a real, already-
   shipped Android `AudioTrack` native crash on the way.
-- **`v1.18.0 "Dormant"`** — `rustysnes-monetization`, a deliberately **inert** entitlement scaffold
-  that is never a dependency of the deterministic core.
+- **`v1.18.0 "Dormant"`** — a deliberately **inert** entitlement scaffold, never a dependency of the
+  deterministic core. **Deleted in `v1.31.0`** ([ADR 0015](docs/adr/0015-rustysnes-is-permanently-non-commercial.md));
+  its lasting side effect was the iOS umbrella-xcframework fix, which is still load-bearing.
 - **`v1.19.0 "Afterburner"`** — an optional PGO/BOLT pipeline, promotion gated on **both** a measured
   >3% Criterion speedup **and** a byte-identical `--features test-roms` re-run — never on speed alone.
 - **`v1.20.0 "Aperture"`** — UI/UX parity: the wasm demo's menus and the desktop peripheral/overscan/

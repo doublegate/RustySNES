@@ -176,41 +176,35 @@ migration was explicitly gated on "Lua/TAS-on-mobile being greenlit," which hasn
 Netplay is a large, net-new UI surface neither shell has any precedent for. See `CHANGELOG.md`'s
 `[Unreleased]` entry for the full reasoning; all three remain on the roadmap for a later rung.
 
-## Verified so far (`v1.18.0`)
+## `v1.18.0` — the dormant scaffold, and the xcframework fix that outlived it
 
-- **`rustysnes-monetization`** (Mobile Phase 5): a new, standalone UniFFI crate — dormant
-  entitlement/ad-pacing policy scaffold, never a dependency of the deterministic core, every
-  concrete pricing/pacing number an explicit placeholder (unlike RustyNES's own already-committed
-  figure). Fully verified on host: `cargo test -p rustysnes-monetization` (5/5 passing),
-  `cargo clippy -p rustysnes-monetization --all-targets -- -D warnings` (clean),
-  `RUSTDOCFLAGS="-D warnings" cargo doc -p rustysnes-monetization --no-deps` (clean),
-  `cargo fmt --check -p rustysnes-monetization` (clean).
-- **Wired into both mobile shells as an inert dependency** — compiled in, called once at startup,
-  logged only, no real store SDK, no UI. **Android**: `build.gradle.kts`'s `cargoNdkBuild` task now
-  builds all three native crates and a second, separate `uniffiBindgenMonetization` task generates
-  this crate's own Kotlin bindings (its own UniFFI namespace, so it can't share `rustysnes-mobile`'s
-  generated-sources directory). Rebuilt via a real Gradle build against the locally cached Gradle
-  8.13 distribution (same no-`gradlew`-wrapper disposition already tracked below), installed on
-  the real AVD, launched, and confirmed via `logcat`:
-  `monetization scaffold (dormant): unlocked=true minIntervalSecs=300 sessionsBeforeFirstAd=3`;
-  the app process stayed alive afterward (no crash). **iOS**: `scripts/build-ios-xcframework.sh`
-  gained a third crate to build/package, merged with `rustysnes-mobile` into one combined
-  `RustysnesFFI.xcframework` rather than two separate per-crate ones — a real macOS CI run caught
-  a genuine `xcodebuild` "Multiple commands produce '.../include/module.modulemap'" failure: a
-  "library"+`-headers` xcframework has its headers copied into one directory shared across every
-  such xcframework linked into the target, so two xcframeworks each contributing a same-named
-  `module.modulemap` collided. Fixed by `libtool -static`-merging both crates' `.a`s per platform
-  slice and combining their modulemaps into one umbrella module before packaging a single
-  xcframework; `ios/project.yml`'s dependency list updated to match. The Rust side's
-  `staticlib`/`rlib` outputs for `aarch64-apple-ios` cross-compile for
-  real in this development environment (confirmed: identical to `rustysnes-ios`'s own already-
-  established precedent). The `cdylib` output the bindgen/xcframework packaging step needs does
-  NOT link here — confirmed this is a pre-existing sandbox limitation, not something this rung
-  introduced (an identical `cc: error: unrecognized command-line option '-target'` failure
-  reproduces for `rustysnes-mobile`'s own pre-existing `cdylib` build in isolation, with or without
-  `rustysnes-monetization` in the same invocation) — so the full xcframework/`xcodebuild` pipeline
-  is compile-verified via `ios.yml`'s real macOS CI build only, matching this platform's standing
-  "scaffolded-only" disposition since `v1.16.0`.
+> **The monetization scaffold this rung shipped was DELETED in `v1.31.0`.** RustySNES is
+> permanently open-source and income-free (`docs/adr/0015`): no ads, no tracking, no paid unlock,
+> in any build on any platform. `crates/rustysnes-monetization`, both shells' startup calls, and
+> the Android/iOS build wiring that carried it are gone. This section is kept for the one piece of
+> engineering that outlived it — see below.
+
+**What remains load-bearing: the iOS umbrella-framework fix.** Packaging a second UniFFI crate
+alongside `rustysnes-mobile` surfaced a genuine `xcodebuild` failure on a real macOS CI run —
+`"Multiple commands produce '.../include/module.modulemap'"`. A `library`+`-headers` xcframework
+(as opposed to a `.framework` bundle) has its headers copied into **one directory shared across
+every such xcframework linked into the target**, and each crate's UniFFI-generated modulemap is
+renamed to the single literal filename Clang requires for auto-discovery. Two xcframeworks each
+contributing a same-named `module.modulemap` to that shared directory collide.
+
+The fix — `libtool -static`-merging every FFI crate's `.a` per platform slice and combining their
+modulemaps into one umbrella module before packaging a **single** `RustysnesFFI.xcframework` — is
+still how `scripts/build-ios-xcframework.sh` works today, and `ios/project.yml` still links that
+name. **The umbrella shape is deliberately retained even though only one crate feeds it now**, so a
+future second FFI crate is a one-line change rather than a rediscovery of this collision.
+
+**A pre-existing sandbox limitation confirmed here, still true:** the `staticlib`/`rlib` outputs
+for `aarch64-apple-ios` cross-compile fine in this development environment, but the `cdylib` the
+bindgen/xcframework step needs does **not** link (`cc: error: unrecognized command-line option
+'-target'`). That reproduces for `rustysnes-mobile`'s own `cdylib` in isolation, so it was never
+introduced by the scaffold — the full xcframework/`xcodebuild` pipeline is compile-verified via
+`ios.yml`'s real macOS CI build only, matching this platform's standing disposition since
+`v1.16.0`.
 
 ## Not yet verified / explicitly deferred
 
@@ -277,7 +271,15 @@ Netplay is a large, net-new UI surface neither shell has any precedent for. See 
 
 **STATUS: NOT GREENLIT.** No store-submission readiness assessment has occurred. This is an
 explicit maintainer go/no-go decision against this document, reviewed and re-decided each time
-the mobile track advances — not an automatic outcome of shipping `v1.14.0`-`v1.18.0`, and not
+the mobile track advances.
+
+**It is now a purely technical gate.** Since `docs/adr/0015` (`v1.31.0`) there is no monetization
+decision riding on it: RustySNES is permanently open-source and income-free, so a listing would be
+a **free** app — no ads, no purchase, no paid unlock — and the only questions left are engineering
+and compliance ones. A free listing remains possible but is **unscheduled**, tied to no version
+number; `v2.0.0` no longer means "store submission".
+
+The gate is reviewed each time the mobile track advances — not an automatic outcome of shipping `v1.14.0`-`v1.18.0`, and not
 tied to any fixed RustySNES version number. It mirrors RustyNES's own real precedent
 (`to-dos/VERSION-PLAN.md`'s own citation): that project's analogous joint Android/iOS store-launch
 milestone, targeting its own `v2.3.0`, has **already been deferred twice** — so a "the mobile
@@ -286,8 +288,8 @@ track exists" milestone being reached is explicitly NOT the same thing as "ready
 **What's done (the prerequisite mobile track, `v1.14.0`-`v1.18.0`, all shipped and verified —
 see "Verified so far" above for the per-release detail):** the `rustysnes-mobile` UniFFI bridge,
 a real Android alpha with save/load-state and a real, found-and-fixed native audio crash, a real
-iOS alpha compile-verified via macOS CI, and the dormant `rustysnes-monetization` scaffold wired
-into both shells as an inert, non-gating call.
+iOS alpha compile-verified via macOS CI. (`v1.18.0`'s dormant monetization scaffold was deleted in
+`v1.31.0` — `docs/adr/0015`; RustySNES is permanently open-source and income-free.)
 
 **What would still need to happen before Phase 6 could even be considered** (not started; listed
 here so a future go/no-go review has a concrete checklist, not a vague "more polish"):
@@ -300,8 +302,8 @@ here so a future go/no-go review has a concrete checklist, not a vague "more pol
   - A committed `./gradlew` wrapper (this environment has only ever used a locally cached Gradle
     distribution directly)
   - Play Store's own submission requirements: a Data Safety form, target API level compliance
-    check, a signed release (not debug) build, a dormant-vs-live Play Billing decision for
-    `rustysnes-monetization` if monetization is ever actually activated
+    check, and a signed release (not debug) build. **No billing decision** — the apps are free
+    and permanently so (`docs/adr/0015`), so Play Billing never enters the submission
 - **iOS:**
   - A real on-device *run* with a ROM loaded. `v1.30.0` narrowed this: `ios.yml` now boots a
     simulator, installs the app, launches it, and **requires it to still be running eight seconds

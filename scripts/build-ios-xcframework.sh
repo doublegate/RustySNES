@@ -17,9 +17,9 @@ out_dir="$repo_root/ios/Frameworks"
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for aarch64-apple-ios (device)"
+echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios (device)"
 cargo build --release --target aarch64-apple-ios \
-  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
+  -p rustysnes-mobile -p rustysnes-ios \
   --manifest-path "$repo_root/Cargo.toml"
 
 # Both simulator architectures, not just arm64-apple-ios-sim -- a `generic/platform=iOS
@@ -29,14 +29,14 @@ cargo build --release --target aarch64-apple-ios \
 # Found for real on a real (Apple Silicon) macOS CI runner: `xcodebuild` reported both
 # xcframeworks here "missing architecture(s) required by this target (x86_64)" when only
 # `aarch64-apple-ios-sim` had been built.
-echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for aarch64-apple-ios-sim (simulator, Apple Silicon)"
+echo "==> Building rustysnes-mobile + rustysnes-ios for aarch64-apple-ios-sim (simulator, Apple Silicon)"
 cargo build --release --target aarch64-apple-ios-sim \
-  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
+  -p rustysnes-mobile -p rustysnes-ios \
   --manifest-path "$repo_root/Cargo.toml"
 
-echo "==> Building rustysnes-mobile + rustysnes-ios + rustysnes-monetization for x86_64-apple-ios (simulator, Intel)"
+echo "==> Building rustysnes-mobile + rustysnes-ios for x86_64-apple-ios (simulator, Intel)"
 cargo build --release --target x86_64-apple-ios \
-  -p rustysnes-mobile -p rustysnes-ios -p rustysnes-monetization \
+  -p rustysnes-mobile -p rustysnes-ios \
   --manifest-path "$repo_root/Cargo.toml"
 
 device_dir="$repo_root/target/aarch64-apple-ios/release"
@@ -49,7 +49,7 @@ sim_x86_64_dir="$repo_root/target/x86_64-apple-ios/release"
 # can itself be multi-arch).
 sim_universal_dir="$out_dir/sim-universal"
 mkdir -p "$sim_universal_dir"
-for crate in rustysnes_mobile rustysnes_ios rustysnes_monetization; do
+for crate in rustysnes_mobile rustysnes_ios; do
   lipo -create \
     "$sim_arm64_dir/lib${crate}.a" \
     "$sim_x86_64_dir/lib${crate}.a" \
@@ -74,45 +74,33 @@ cargo run -p rustysnes-mobile --features bindgen --bin uniffi-bindgen \
 # xcframework.
 mv "$bindings_dir/rustysnes_mobile.swift" "$repo_root/ios/RustySNES/Sources/Generated-RustysnesMobile.swift"
 
-echo "==> Generating UniFFI Swift bindings for rustysnes-monetization"
-# Same shape as rustysnes-mobile's bindgen step above -- a distinct crate/dylib/namespace, so it
-# needs its own bindgen invocation (`v1.18.0 "Dormant"`).
-monetization_bindings_dir="$out_dir/generated-monetization"
-mkdir -p "$monetization_bindings_dir"
-cargo run -p rustysnes-monetization --features bindgen --bin uniffi-bindgen \
-  --manifest-path "$repo_root/Cargo.toml" -- \
-  generate --library "$device_dir/librustysnes_monetization.dylib" --language swift \
-  --out-dir "$monetization_bindings_dir" --no-format
-mv "$monetization_bindings_dir/rustysnes_monetization.swift" \
-  "$repo_root/ios/RustySNES/Sources/Generated-RustysnesMonetization.swift"
-
-# `rustysnes-mobile` and `rustysnes-monetization` are packaged into ONE combined
-# `RustysnesFFI.xcframework`, not two separate ones -- found on a real macOS CI run: a
-# "library"+`-headers` xcframework (as opposed to a `.framework` bundle) has its headers copied by
-# `xcodebuild` into one directory shared across every such xcframework linked into the target
-# (`$(BUILT_PRODUCTS_DIR)/include/`), and BOTH crates' UniFFI-generated modulemap gets renamed to
-# the same literal filename Clang requires for auto-discovery (`module.modulemap`) -- two
-# xcframeworks each contributing a same-named file to that one shared directory is a genuine
-# "Multiple commands produce '.../include/module.modulemap'" `xcodebuild` failure, not a
-# hypothetical one. Merging both crates' static libraries (via `libtool -static`) and headers
-# (one combined `module.modulemap` declaring both crates' modules) into a single xcframework
-# avoids the collision entirely -- matching the same umbrella-module pattern other multi-crate
-# UniFFI Swift/Xcode integrations use.
-echo "==> Packaging combined RustysnesFFI.xcframework (rustysnes-mobile + rustysnes-monetization)"
+# The FFI staticlib is packaged into `RustysnesFFI.xcframework` through an umbrella-module shape
+# that is deliberately RETAINED even though only one crate feeds it today.
+#
+# Why the shape matters: a "library"+`-headers` xcframework (as opposed to a `.framework` bundle)
+# has its headers copied by `xcodebuild` into one directory shared across every such xcframework
+# linked into the target (`$(BUILT_PRODUCTS_DIR)/include/`), and each crate's UniFFI-generated
+# modulemap is renamed to the one literal filename Clang requires for auto-discovery
+# (`module.modulemap`). Two xcframeworks each contributing a same-named file to that one shared
+# directory is a genuine "Multiple commands produce '.../include/module.modulemap'" `xcodebuild`
+# failure -- found on a real macOS CI run, not a hypothetical. Merging every FFI crate's static
+# library (via `libtool -static`) and headers into ONE xcframework with a single combined
+# `module.modulemap` avoids it entirely.
+#
+# `v1.31.0` removed the second crate (`rustysnes-monetization`; `docs/adr/0015` -- RustySNES is
+# permanently non-commercial), leaving `rustysnes-mobile` alone in here. The merge is kept anyway
+# so that adding a second FFI crate later is a one-line change rather than a rediscovery of the
+# collision above, and so the artifact keeps the name `ios/project.yml` links.
+echo "==> Packaging RustysnesFFI.xcframework (rustysnes-mobile)"
 ffi_headers="$out_dir/ffi-headers"
 mkdir -p "$ffi_headers"
 cp "$bindings_dir/rustysnes_mobileFFI.h" "$ffi_headers/"
-cp "$monetization_bindings_dir/rustysnes_monetizationFFI.h" "$ffi_headers/"
-cat "$bindings_dir/rustysnes_mobileFFI.modulemap" \
-  "$monetization_bindings_dir/rustysnes_monetizationFFI.modulemap" \
-  > "$ffi_headers/module.modulemap"
+cat "$bindings_dir/rustysnes_mobileFFI.modulemap" > "$ffi_headers/module.modulemap"
 
 ffi_device_lib="$out_dir/librustysnes_ffi-device.a"
 ffi_sim_lib="$out_dir/librustysnes_ffi-sim.a"
-libtool -static -o "$ffi_device_lib" \
-  "$device_dir/librustysnes_mobile.a" "$device_dir/librustysnes_monetization.a"
-libtool -static -o "$ffi_sim_lib" \
-  "$sim_dir/librustysnes_mobile.a" "$sim_dir/librustysnes_monetization.a"
+libtool -static -o "$ffi_device_lib" "$device_dir/librustysnes_mobile.a"
+libtool -static -o "$ffi_sim_lib" "$sim_dir/librustysnes_mobile.a"
 
 xcodebuild -create-xcframework \
   -library "$ffi_device_lib" -headers "$ffi_headers" \

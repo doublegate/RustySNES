@@ -8,34 +8,15 @@ import SwiftUI
 /// succeeds and produces a genuine ARM64 Mach-O static library, and a real `xcodebuild` simulator
 /// build passes on a `macos-latest` CI runner) versus what isn't (no on-device/simulator *run*
 /// has ever happened, since this development environment has no Xcode/macOS toolchain).
+///
+/// RustySNES is permanently open-source and income-free (`docs/adr/0015`): this app is free, with
+/// no ads, no tracking, and no paid unlock. `v1.31.0` removed the dormant monetization scaffold
+/// this file used to call at startup.
 @main
 struct RustySNESApp: App {
-    init() {
-        logMonetizationScaffold()
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
     }
-}
-
-/// `v1.18.0 "Dormant"` -- an inert call into `rustysnes-monetization`: compiled in and invoked
-/// once at startup, logged only, never gating any UI or behavior. No real store SDK is wired up;
-/// both functions are dormant placeholders (see that crate's own module doc) pending the
-/// `docs/mobile-readiness.md` "Mobile Phase 6" store-launch decision. Mirrors
-/// `MainActivity.kt`'s `logMonetizationScaffold` exactly.
-private func logMonetizationScaffold() {
-    // `max(0.0, ...)` (found in review): a negative `timeIntervalSince1970` (device clock set
-    // before 1970) would otherwise trap on the `UInt64` cast, crashing the app at startup over a
-    // log-only scaffold call.
-    let nowUnixSecs = UInt64(max(0.0, Date().timeIntervalSince1970))
-    let entitlement = checkEntitlement(nowUnixSecs: nowUnixSecs)
-    let pacing = defaultAdPacingPolicy()
-    print(
-        "RustySNES: monetization scaffold (dormant): unlocked=\(entitlement.unlocked) "
-            + "minIntervalSecs=\(pacing.minIntervalSecs) "
-            + "sessionsBeforeFirstAd=\(pacing.sessionsBeforeFirstAd)"
-    )
 }

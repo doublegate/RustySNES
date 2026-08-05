@@ -901,7 +901,7 @@ gate; README/CHANGELOG/`docs/`/`docs/STATUS.md` fully in sync.
 A second, parallel ladder theme, distinct from the phase-spine ladder above: closing the gap
 between RustySNES and its sibling NES emulator RustyNES (`../RustyNES`, currently released
 `v2.1.5 "Fathom"`, `v2.1.6 "Expansion Audio"` in progress). Gap analysis, scope decisions
-(full mobile parity in scope; dormant monetization scaffolding in scope; lockstep tracking over a
+(full mobile parity in scope; lockstep tracking over a
 frozen snapshot), and full per-release detail live in the roadmap plan this section summarizes;
 this ladder is the durable, versioned record — update it at every release like every other rung
 in this document, not left to drift stale.
@@ -1265,6 +1265,11 @@ reasoning per item); all three remain on the roadmap for a later mobile-track ru
 
 ### `v1.18.0 "Dormant"` — Mobile Phase 5: monetization scaffolding — **RELEASED 2026-07-14**
 
+> **REMOVED IN `v1.31.0`.** Everything this rung shipped was deleted by `docs/adr/0015` —
+> RustySNES is permanently open-source and income-free. The record below stays because the
+> scaffold really did ship and really was dormant; the reversal is recorded in the ADR, not by
+> rewriting history.
+
 Delivered: a new, standalone `rustysnes-monetization` UniFFI crate — dormant entitlement/
 ad-pacing policy scaffold (`check_entitlement`, `default_ad_pacing_policy`, `should_show_ad`),
 never a dependency of the deterministic core, every concrete pricing/pacing number an explicit
@@ -1280,9 +1285,10 @@ contributing a same-named `module.modulemap` to a shared build-products director
 merging `rustysnes-mobile` and `rustysnes-monetization` into one combined
 `RustysnesFFI.xcframework`.
 
-A store-launch decision (Play + App Store submission, monetization activation) remains an
-explicit maintainer go/no-go against `docs/mobile-readiness.md`, not a numbered rung —
-mirroring RustyNES's own still-pending, twice-deferred launch.
+A store-launch decision — submitting the apps as **free** apps — remains an explicit maintainer
+go/no-go against `docs/mobile-readiness.md`, not a numbered rung. There is no monetization decision
+riding along with it: `docs/adr/0015` makes RustySNES permanently non-commercial, and `v1.31.0`
+deleted the dormant scaffold this rung shipped.
 
 ### `v1.19.0 "Afterburner"` — PGO/BOLT pipeline — **RELEASED 2026-07-15**
 
@@ -1309,9 +1315,13 @@ onto the already-gathered PGO profile, which could have clobbered the bolt-instr
 
 **On version numbers:** RustySNES's own SemVer stays independent of RustyNES's — this ladder
 reaches RustyNES's current maturity bar at RustySNES's own `v1.19.0`, not a literal "`v2.2.0`."
-If the store-launch decision above is ever greenlit, that's the natural point to consider a
-`v2.0.0` MAJOR bump (a platform-scope-expanding, non-backward-compatible milestone, matching this
-document's own MAJOR-bump rule) — decided then, via the lockstep checklist, not pre-committed here.
+A store launch is **not** a `v2.0.0` trigger. `v2.0.0` is reserved for what this document's own
+MAJOR-bump rule says it is — a public-API or save-state-format break — and
+`docs/adr/0002`'s fractional-timebase refactor remains the one expected candidate. Shipping a free
+app changes no format and breaks no API, so it can land on the `v1.x` line whenever the gate opens.
+The freed `v2.0.0` slot is repurposed toward **accuracy/fidelity** work: the ~82 uncovered
+AccuracySNES rows (against the ~422 soft ceiling the coverability audit measured), the dot-model
+residuals, and the hi-res compositor gaps that are currently reference-disagreement-blocked.
 
 ### `v1.20.0 "Aperture"` — UI/UX-parity ladder, Phase A — **RELEASED 2026-07-15**
 

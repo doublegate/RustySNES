@@ -262,6 +262,16 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
 
 ## Milestones beyond the phases
 
+- **RustySNES is permanently open-source and income-free — `docs/adr/0015`, `v1.31.0`.** No ads, no
+  tracking-for-revenue, no freemium, no demo or time gate, no in-app purchase, no paid unlock, in
+  any build on any platform. The Android and iOS apps stay **free** apps; only the paid/ad layer
+  was removed, and the dormant `rustysnes-monetization` scaffold `v1.18.0` shipped is **deleted**
+  rather than disabled, so reintroducing monetization would require a new ADR explicitly reversing
+  that one. A store listing — a free app, no ads, no purchase — remains possible but is
+  **unscheduled and has no fixed version**; `v2.0.0` no longer means "store submission" and is
+  reserved for a genuine public-API or save-state-format break (`docs/adr/0002`'s fractional-timebase
+  refactor being the one expected candidate).
+
 - **v0.7.0 "Resolution" — RELEASED 2026-07-09.** True 512-px hi-res (Modes 5/6) output — the one
   bounded item left on Phase 6's residual list; the rest of that list (SPC7110, DRAM refresh,
   ST018/S-RTC/PAL/ExLoROM real-ROM validation) stays an ongoing, opportunistic `v0.x.y`-patch
@@ -359,13 +369,11 @@ under `v1.0.0`) and the netplay save-state-cost pre-work.
   simulator run yet, only a build), then a hardening rung (`v1.17.0 "Parity"`,
   **RELEASED 2026-07-12** — Save State/Load State on both mobile shells, plus a real,
   pre-existing, already-shipped Android `AudioTrack` crash found and fixed while re-verifying it
-  on-device; RetroAchievements/`mlua`/netplay honestly re-scoped to a later rung), then dormant
-  monetization scaffolding (`v1.18.0 "Dormant"`, **RELEASED 2026-07-14** — new, standalone
-  `rustysnes-monetization` UniFFI crate, never a dependency of the deterministic core, every
-  pricing/pacing figure an explicit placeholder; wired into both mobile shells as an inert,
-  log-only startup call, verified for real on the Android AVD via `logcat` and compile-verified
-  for iOS via a real macOS CI build, which caught and fixed a genuine `xcodebuild`
-  xcframework-modulemap collision), and finally an optional PGO/BOLT pipeline for the shipping
+  on-device; RetroAchievements/`mlua`/netplay honestly re-scoped to a later rung), then a
+  now-removed dormant scaffold rung (`v1.18.0 "Dormant"`, **RELEASED 2026-07-14** — deleted in
+  `v1.31.0` per `docs/adr/0015`; its one durable side effect was a genuine `xcodebuild`
+  xcframework-modulemap collision, caught and fixed on a real macOS CI build, whose umbrella-
+  framework fix is still load-bearing today), and finally an optional PGO/BOLT pipeline for the shipping
   `rustysnes` binary (`v1.19.0 "Afterburner"`, **RELEASED 2026-07-15** — `scripts/pgo/run.sh` +
   `.github/workflows/pgo.yml`, promotion gated on both a `>3%` Criterion speedup and a
   byte-identical `--features test-roms` re-run under the PGO profile, never on speed alone;

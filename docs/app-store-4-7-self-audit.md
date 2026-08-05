@@ -110,8 +110,15 @@ Two points worth stating rather than leaving implicit:
 
 ## Criterion 5 — no monetization surface, so no §3.1 interaction · **PASS**
 
-`rustysnes-monetization` is compiled into both shells and is **inert**: no Play Billing client, no
-StoreKit, no purchase or product call reaches either shell.
+**There is no monetization code in this project at all**, and there permanently will not be:
+`docs/adr/0015` makes RustySNES open-source and income-free — no ads, no tracking-for-revenue, no
+freemium, no demo gate, no in-app purchase, no paid unlock, in any build on any platform. The apps
+are free apps. No Play Billing client, no StoreKit, no purchase or product call exists anywhere.
+
+This is a **stronger** answer than the one this audit gave at `v1.30.0`. That revision argued
+dormancy: a `rustysnes-monetization` crate was compiled into both shells but inert, so §3.1 did not
+engage *at that revision*. `v1.31.0` deleted the crate outright, so the answer no longer rests on an
+argument about what inert code does — the code is not there.
 
 ```text
 grep -rnE 'BillingClient|StoreKit|purchase|SKProduct' android/app/src/main/kotlin ios/RustySNES/Sources
@@ -122,22 +129,24 @@ grep -rnE 'BillingClient|StoreKit|purchase|SKProduct' android/app/src/main/kotli
 the whole string, so the command would report "nothing" for a reason that has nothing to do with the
 code. An audit whose command cannot be re-run is an assertion, not an audit.
 
-The crate's own module doc states the dormancy as the design (`crates/rustysnes-monetization/src/lib.rs:6-10`).
-Because nothing is sold and no ads are served, §3.1 (In-App Purchase) and the ad-disclosure rules do
-not engage at this revision. **Re-audit trigger:** activating it changes that immediately, and the
-dormant-vs-live decision is explicitly part of the `v2.0.0` scope.
+Because nothing is sold and no ads are served — structurally, not by configuration — §3.1 (In-App
+Purchase) and the ad-disclosure rules do not engage, and **there is no re-audit trigger for this
+criterion.** Reintroducing monetization would require a new ADR explicitly reversing `docs/adr/0015`,
+which is the intended bar; a criterion that can only change by formal decision does not need a
+watch-item.
 
 ## Findings
 
-**No blocking findings.** Two items to re-audit before any submission, both flagged above:
+**No blocking findings.** One item to re-audit before any submission, flagged above:
 
 1. **The peripheral UI, when it lands** — Super Scope / Mouse / Multitap affordances will need
    user-visible names, and those names are a fresh trademark decision.
-2. **`rustysnes-monetization`, if activated** — engages §3.1 and the ad-disclosure rules that this
-   revision does not touch.
 
-Neither is a defect. Both are consequences of work that is deliberately not done yet, and recording
-them here is what stops a future rung from shipping them past an audit that predates them.
+It is not a defect. It is a consequence of work that is deliberately not done yet, and recording it
+here is what stops a future rung from shipping it past an audit that predates it.
+
+The second item this section used to carry — `rustysnes-monetization` if activated — is **closed,
+not deferred**: `v1.31.0` deleted the crate and `docs/adr/0015` makes the decision permanent.
 
 ## What this audit does not cover
 

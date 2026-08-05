@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.31.0] "Ledger" - 2026-08-04
+
+### Removed
+
+- **All monetization is removed. RustySNES is permanently open-source and income-free
+  (`docs/adr/0015`).** No ads, no tracking-for-revenue, no freemium, no demo or time gate, no
+  in-app purchase, no paid unlock — in any build, on any platform. **The Android and iOS apps are
+  kept as free apps**; only the paid/ad layer is gone. **Zero emulation-core behaviour change**: no
+  `rustysnes-*` crate ever depended on the removed code, so the deterministic core is untouched by
+  construction — AccuracySNES battery 56/56, scenes 2/2, coverage still 361/443, no golden moved.
+
+  **What was actually there, stated plainly**, because the honest description makes the removal
+  easy to judge: `crates/rustysnes-monetization` was a 179-line UniFFI crate shipped in
+  `v1.18.0 "Dormant"` as a policy-*shape* template. `check_entitlement` was a stub that always
+  returned `unlocked: true`; `should_show_ad` had real pacing math and **zero call sites** outside
+  its own tests; every number in it was an explicit placeholder. Both shells called it once at
+  startup and wrote the result to a log line. **No Play Billing, StoreKit, RevenueCat, AppLovin,
+  AdMob, ad SDK, paywall, purchase flow, persisted entitlement, or network call ever existed** —
+  the only mentions of those vendors were two comments saying they were *not* wired up.
+
+  **Deleted, not disabled.** The crate, its workspace member, its `.gitignore` rule, the Android
+  Gradle wiring (`cargoNdkBuild` package, `jniLibs` include, the `uniffiBindgenMonetization` task
+  and its generated-sources dir, the `preBuild` dependency), both shells' call sites, the
+  `android.yml` path filters and `cargo ndk` packages, and the crate's slice of the iOS xcframework
+  are all gone. Re-introducing monetization would now require a new ADR explicitly reversing
+  `docs/adr/0015` — which is the intended bar.
+
+  **Two things deliberately kept.** The **16 KB page-alignment gates and the by-name APK presence
+  check** stay by-name at two libraries rather than being weakened to a count — that gate was
+  hardened in `v1.28.0` precisely so a packaging regression fails loudly. And the **umbrella
+  `RustysnesFFI.xcframework` shape is retained** even though one crate now feeds it: it is what
+  stops a second UniFFI crate from reintroducing the `"Multiple commands produce
+  '.../include/module.modulemap'"` collision that forced the merge in the first place, and it is
+  the artifact name `ios/project.yml` links. That collision — found on a real macOS CI run — is
+  `v1.18.0`'s one durable legacy, and it outlives the rung that caused it.
+
+### Changed
+
+- **`v2.0.0` stops meaning "store submission" and is repurposed for accuracy/fidelity work.** A
+  free app changes no format and breaks no API, so a listing can land on the `v1.x` line whenever
+  the gate opens. The MAJOR bump returns to what `to-dos/VERSION-PLAN.md`'s own rule always said it
+  was — a public-API or save-state-format break, with `docs/adr/0002`'s fractional-timebase
+  refactor the one expected candidate. The freed slot points at the ~82 uncovered AccuracySNES rows
+  (against the ~422 soft ceiling), the dot-model residuals, and the reference-disagreement-blocked
+  hi-res compositor gaps.
+
+- **Mobile Phase 6 becomes a purely technical gate** with no monetization decision riding on it.
+  **STATUS stays NOT GREENLIT.** A free listing — no ads, no purchase — remains possible but is
+  unscheduled and tied to no version number.
+
+- **The App Store §4.7 audit's Criterion 5 gets *stronger*, not deleted.** It previously argued
+  *dormancy*: a monetization crate existed but was inert, so §3.1 did not engage *at that revision*.
+  It now rests on structure — the code is not there — and the criterion has **no re-audit trigger**,
+  because it can only change by formally reversing an ADR. Finding #2 is **closed, not deferred**.
+
+- **Historical records are not rewritten.** The released `[1.18.0]`, `[1.28.0]` and `[1.30.0]`
+  sections and every `docs/releases/RELEASE_NOTES_*.md` stand as they are; the `v1.18.0` entries in
+  `VERSION-PLAN.md` and `ROADMAP.md` gain a removal pointer rather than being excised. The
+  scaffolding really did ship and really was dormant — the reversal belongs in an ADR, not in a
+  rewrite of the record.
+
+- **`to-dos/LOCKSTEP-CHECKLIST.md` gains a divergence guard.** The checklist's standing job is to
+  flag sibling features RustySNES lacks, so without an explicit row a future parity pass would
+  helpfully re-propose monetization. The correct disposition is now *decline, citing ADR 0015*.
+  (The sibling reached the same decision independently in its own ADR 0035 on the same day, so the
+  two projects agree today; the guard is written for the future case.)
+
 ## [1.30.1] "Imprint" - 2026-08-04
 
 ### Changed

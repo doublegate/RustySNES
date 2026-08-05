@@ -6,7 +6,6 @@ on:
     paths:
       - "crates/rustysnes-android/**"
       - "crates/rustysnes-mobile/**"
-      - "crates/rustysnes-monetization/**"
       - "crates/rustysnes-gfx-shaders/**"
       - "android/**"
       - "Cargo.lock"
@@ -15,7 +14,6 @@ on:
     paths:
       - "crates/rustysnes-android/**"
       - "crates/rustysnes-mobile/**"
-      - "crates/rustysnes-monetization/**"
       - "crates/rustysnes-gfx-shaders/**"
       - "android/**"
       - "Cargo.lock"
@@ -102,7 +100,7 @@ jobs:
           cargo ndk \
             -t arm64-v8a -t x86_64 \
             -o android/app/src/main/jniLibs \
-            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
+            build --release -p rustysnes-android -p rustysnes-mobile
 
       # Only the two 32-bit ABIs here. Re-listing the 64-bit ones would relink them without the
       # flag above and overwrite the aligned output with 4 KB libraries — the gate would catch it,
@@ -112,7 +110,7 @@ jobs:
           cargo ndk \
             -t armeabi-v7a -t x86 \
             -o android/app/src/main/jniLibs \
-            build --release -p rustysnes-android -p rustysnes-mobile -p rustysnes-monetization
+            build --release -p rustysnes-android -p rustysnes-mobile
 
       - name: Show what was produced
         run: find android/app/src/main/jniLibs -name '*.so' -printf '%p  %s bytes\n' | sort
@@ -207,9 +205,9 @@ jobs:
             fi
           done
 
-      # The authoritative alignment gate: the APK is what ships, and it carries THREE libraries per
-      # ABI (`librustysnes_android.so`, `librustysnes_mobile.so`, `librustysnes_monetization.so`),
-      # built by Gradle's own `cargoNdkBuild`. The earlier jniLibs gate checks a pre-Gradle build and
+      # The authoritative alignment gate: the APK is what ships, and it carries TWO libraries per
+      # ABI (`librustysnes_android.so`, `librustysnes_mobile.so`), built by Gradle's own
+      # `cargoNdkBuild`. The earlier jniLibs gate checks a pre-Gradle build and
       # would pass while the packaged libraries were misaligned -- a false pass CodeRabbit caught on
       # this PR. Both are kept: the early one fails fast, this one is the truth.
       - name: Assert 16 KB page alignment inside the APK
@@ -243,10 +241,11 @@ jobs:
                 fail=1
               fi
             done
-            # Presence, by name, for the three this project builds. A count would have to be
+            # Presence, by name, for the two this project builds. A count would have to be
             # revised every time a dependency adds or drops a native library -- and a wrong count
-            # is what this gate got wrong first time round, failing on a correct APK.
-            for want in librustysnes_android.so librustysnes_mobile.so librustysnes_monetization.so; do
+            # is what this gate got wrong first time round, failing on a correct APK. It stays
+            # by-name after `v1.31.0` dropped the third (`librustysnes_monetization.so`).
+            for want in librustysnes_android.so librustysnes_mobile.so; do
               [ -e "$work/lib/$abi/$want" ] || {
                 echo "::error::the APK is missing lib/$abi/$want -- jniLibs packaging regressed"
                 fail=1

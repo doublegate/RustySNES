@@ -42,11 +42,13 @@ targets:
       # Xcode links them directly into the app binary rather than copying/code-signing them as
       # separate embedded bundles (which is only meaningful for dynamic frameworks).
       #
-      # `RustysnesFFI.xcframework` combines rustysnes-mobile + rustysnes-monetization (`v1.18.0
-      # "Dormant"`) -- found on a real macOS CI run: xcodebuild copies every "library"+`-headers`
-      # xcframework's headers into one directory shared across the whole target, and two separate
-      # per-crate xcframeworks each contributing a same-named `module.modulemap` there is a real
-      # "Multiple commands produce" build failure, not a hypothetical one. See
+      # `RustysnesFFI.xcframework` is the umbrella framework every UniFFI crate is merged into --
+      # found on a real macOS CI run: xcodebuild copies every "library"+`-headers` xcframework's
+      # headers into one directory shared across the whole target, and two separate per-crate
+      # xcframeworks each contributing a same-named `module.modulemap` there is a real "Multiple
+      # commands produce" build failure, not a hypothetical one. It carries only rustysnes-mobile
+      # since `v1.31.0` dropped the second crate (`docs/adr/0015`), and the umbrella shape is kept
+      # so a future FFI crate does not rediscover that collision. See
       # `scripts/build-ios-xcframework.sh`'s own comment for the full story.
       - framework: Frameworks/RustysnesFFI.xcframework
         embed: false
