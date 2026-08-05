@@ -70,7 +70,7 @@ a render the references agree on"* cannot be satisfied in either direction. Reco
 The real target, grouped by the machinery each cluster needs. **Order matters**: the clusters near
 the top need nothing new.
 
-### 4a — needs no new machinery (15; **1 landed, 14 left**)
+### 4a — needs no new machinery (**1 landed; 2 genuinely left, 5 reclassified, 1 suspect**)
 
 `B2.02`, `B2.03` — *"both landed in the emulator; the cart rows are the remaining half."* The
 dot-model work shipped in `v1.28.0`; these are the on-cart assertions for it. Note the **cart-ID vs
@@ -86,8 +86,29 @@ recorded in the test's doc comment rather than papered over, and the row records
 exactly as the plan asked. Isolating the alignment term needs a sub-CPU-cycle skew source the
 cart does not have — a separate row, not a fix to this one.
 
-`B4.01`, `B4.10`, `C1.09`, `C3.10`, `C6.07`, `C7.07`, `C8.09`, `C10.03`, `E3.07`, `E4.07`,
-`E6.03`, `E6.05`.
+**CORRECTION (2026-08-05, after reading the dossier row-by-row): five of these were misfiled here
+by the first pass of this document, which grouped by "has no recorded blocker" rather than by what
+the row actually needs.** Checking each against the coverage table and the dossier text:
+
+| Row | Actually belongs in | Why |
+|---|---|---|
+| `C6.07`, `C8.09`, `C10.03` | **scene tier** | `C6`, `C8` and `C10` have **zero** on-cart coverage — they are pure scene groups. These are framebuffer-oracle rows, not on-cart ones. |
+| `C1.09` | **do not author yet** | The dossier row is itself an unresolved **`[CONFLICT]`** — *"fullsnes says register bits 6-1; unresolved."* Authoring against an unresolved conflict means picking a side the sources do not. |
+| `C3.10` | **4d** (host peripheral contract) | Super Scope latch position — needs the peripheral attached in every runner, exactly like `F1.13`-`F1.18`. |
+| `E3.07`, `E4.07`, `E6.03`, `E6.05` | **4c** (Group E emitters) | All four need an uploaded SPC700 program, so they carry 4c's machinery cost, not 4a's. |
+
+**Genuinely 4a, on-cart, no new machinery:**
+
+`B4.10` — *"No IRQ at dot 153 on the short scanline."* A negative assertion resting on the
+short-line model that shipped in `v1.28.0`; the field-parity gate to reach a short line already
+exists.
+
+`C7.07` — *"Time Over false positive"* `[ERRATA]`: first sprite 16x16+ at X=0-255 with others at
+negative X. Same family as `C7.05`/`C7.06`, so the sprite/flag instrument is already built.
+
+`B4.01` — *"/NMI asserts at **H = 0.5**"*. Half-dot precision against an instrument that reads
+whole dots; likely needs the same clock-domain instrument `A5.20`/`B1.05` are parked on. Treat as
+suspect until someone shows an observable, rather than as a quick row.
 
 ### 4a — starting analysis (done 2026-08-05, authoring not yet begun)
 
