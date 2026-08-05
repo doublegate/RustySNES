@@ -158,6 +158,26 @@ before dot 274. Treat the whole family as one instrument built once, then reused
 `E6.10`, `E7.02` (needs two voices at different rates), `E8.08`, `E8.09`, `E8.11`, `E9.07`, `E9.08`,
 `E9.14`, `E9.16`, `E9.20`, `E10.02`, `E10.03`, `E10.04`, `E10.06`, `A6.13`.
 
+**ORDERING (surveyed 2026-08-05): not every row filed here actually needs the emitters, and the
+ones that do not are the correct entry point.**
+
+`gen/src/spc.rs` already carries **74** emitters. The rows that need *new* ones are the DSP-behaviour
+rows (`E6.*`, `E7.02`, `E9.*`, `E10.*`) — they upload a program that drives voices and reads back
+state. But the **`E4` handshake rows are CPU-side IPL protocol and need no SPC program at all**:
+`E4.05` (*"first kick `$CC`; subsequent `((index+2) & $FF) | 1`"*) describes what the **S-CPU**
+sends, and `asm/runtime.s`'s `apu_upload` already implements that sequence (`@kick`, ~line 3441) —
+so the row is written against machinery the cart has had since Group E began.
+
+**Start there.** `E4.05`, then the neighbouring handshake rows, then invest in emitters for the DSP
+rows once the cheap ones are banked. Filing the whole group behind "needs new SPC700 emitters" —
+as the first pass of this document did — overstates the cost of its easiest members.
+
+**Two rows to approach with the `C7.07` lesson in mind**, since both are `[ERRATA]` about
+*simultaneous* access and neither states a deterministic observable: `E4.09` (*"16-bit writes to
+`$2140/41` **can** corrupt `$2143`"*) and `E4.10` (*"simultaneous CPU/SPC access produces incorrect
+data"*). "Can corrupt" is probabilistic; a row asserting it fires needs a statistical framing or it
+will pass for the wrong reason.
+
 **`gen/src/spc.rs` carries only opcodes a committed test exercises**, so most of these need new
 encodings — each verified against `rustysnes-apu/src/spc700_exec.rs`'s dispatch table, because an
 unverified byte surfaces as an emulator disagreement rather than an assembler bug.
