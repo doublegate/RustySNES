@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.31.1] "Firewall" - 2026-08-04
+
 ### Added
 
 - **`docs/ai-emulator-provenance-guardrails.md` is ingested as this project's highest-priority
