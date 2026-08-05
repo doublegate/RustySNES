@@ -64,8 +64,19 @@ case "$REF_PROJ/" in
         ;;
 esac
 
-MESEN=$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll
-SNES9X=$REF_PROJ/snes9x/libretro/snes9x_libretro.so
+# Each reference is individually overridable, and pointing these at INSTALLED binaries (a distro
+# package, a RetroArch libretro core) is the PREFERRED arrangement -- it satisfies the reference
+# firewall (docs/ai-emulator-provenance-guardrails.md) more completely than a built-from-source
+# REF_PROJ tree does, because then no reference source exists on the machine at all. Example:
+#
+#   SNES9X=~/.var/app/org.libretro.RetroArch/config/retroarch/cores/snes9x_libretro.so \
+#   MESEN=~/.var/app/org.libretro.RetroArch/config/retroarch/cores/mesen-s_libretro.so \
+#   bash scripts/accuracysnes/crossval.sh
+#
+# MESEN may be either a Mesen2 `Mesen.dll` (the headless --testRunner path) or a libretro core
+# (`mesen-s_libretro.so`), distinguished by extension below.
+MESEN=${MESEN:-$REF_PROJ/Mesen2/bin/linux-x64/Release/linux-x64/publish/Mesen.dll}
+SNES9X=${SNES9X:-$REF_PROJ/snes9x/libretro/snes9x_libretro.so}
 
 if [[ ! -f $ROM ]]; then
     echo "error: $ROM not found — run 'cargo run -p accuracysnes-gen' first" >&2
