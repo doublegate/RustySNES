@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`webbrowser` 1.2.1 → 1.2.4, closing RUSTSEC-2026-0257** (`BROWSER` argument
+  injection on Unix). Reached transitively through `egui-winit`: on Unix the
+  affected versions substituted the URL into the `BROWSER` template *before*
+  tokenizing with `split_ascii_whitespace()`, so a URL retaining spaces could
+  become extra browser arguments — reproduced upstream against Chromium with
+  `--remote-debugging-port` and `--proxy-server`.
+
+  The advisory was failing `Cargo Deny Check` and `Dependency Audit` on `main`,
+  not only on a branch, so this had been shipping.
+
+### Changed
+
+- **Every dependency moved to its latest semver-compatible version** — 141
+  packages, `cargo update`. Not a targeted patch of the one vulnerable crate:
+  the whole graph is now current, which is the state a security gate can
+  meaningfully assert against.
+
+  Verified rather than assumed: `cargo deny check` reports **advisories ok, bans
+  ok, licenses ok, sources ok**, and the workspace is green at **66 suites / 897
+  tests / 0 failures** with `fmt`, `clippy --workspace -D warnings` and a full
+  `build` all passing.
+
+- **Two `deny.toml` advisory ignores retired on their own stated condition.** The
+  `quick-xml 0.39.4` pair (RUSTSEC-2026-0194 / RUSTSEC-2026-0195) was ignored with
+  the note *"no upgrade path exists … revisit on the next wayland-scanner /
+  smithay-client-toolkit release"*. That release arrived:
+  `wayland-scanner 0.31.10 → 0.31.11` pulls `quick-xml 0.39.4 → 0.41.0`, past the
+  `>= 0.40` the fixes live in. `cargo deny` flagged both as matching no crate, and
+  it stays green with them removed.
+
+  The `ttf-parser` ignore (RUSTSEC-2026-0192) still matches and is kept — it is an
+  informational *unmaintained* advisory on a transitive dep of `winit`'s
+  decoration stack, with no upgrade available.
+
 ## [1.31.1] "Firewall" - 2026-08-04
 
 ### Added
