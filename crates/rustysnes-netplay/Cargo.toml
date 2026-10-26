@@ -16,7 +16,7 @@ thiserror = "2"
 # wasm32 target deps: the browser WebRTC transport (`RtcPeerConnection`/`RtcDataChannel`).
 # Native builds never see these — no C toolchain, no vendored library, unlike `rustysnes-script`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.126"
+wasm-bindgen = "0.2.129"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "RtcPeerConnection", "RtcDataChannel", "RtcDataChannelInit", "RtcDataChannelType",

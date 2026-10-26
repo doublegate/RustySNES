@@ -474,17 +474,20 @@ fn extract_rom_bytes(bytes: &[u8]) -> Result<Cow<'_, [u8]>, EmuError> {
         zip::ZipArchive::new(cursor).map_err(|e| EmuError::Archive(format!("{e}")))?;
     let rom_index = (0..archive.len())
         .find(|&i| {
-            archive.name_for_index(i).is_some_and(|name| {
-                // Directory entries conventionally end with `/` (zip spec) — a directory named
-                // e.g. `Game.sfc/` must not match, or extraction below fails on an empty read.
-                !name.ends_with('/')
-                    && std::path::Path::new(name)
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| {
-                            ROM_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r))
-                        })
-            })
+            archive
+                .name_for_index(i)
+                .and_then(Result::ok)
+                .is_some_and(|name| {
+                    // Directory entries conventionally end with `/` (zip spec) — a directory named
+                    // e.g. `Game.sfc/` must not match, or extraction below fails on an empty read.
+                    !name.ends_with('/')
+                        && std::path::Path::new(name.as_ref())
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| {
+                                ROM_EXTENSIONS.iter().any(|r| ext.eq_ignore_ascii_case(r))
+                            })
+                })
         })
         .ok_or_else(|| {
             EmuError::Archive(format!(
