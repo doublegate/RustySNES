@@ -184,7 +184,7 @@ web-time = "1.1"
 # wasm32. `deflate` only (no `zstd`/`lzma`/`bzip2`) — the format essentially every SNES ROM zip
 # in the wild uses; the default `flate2` backend is pure Rust, so this stays wasm-compatible with
 # no system zlib dependency.
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # Debug -> ROM Info panel (`v1.20.0`): CRC32 of the loaded ROM alongside the SHA-256
 # `rustysnes_core::movie::hash_rom` already computes. Pure Rust, wasm32-portable, and already
@@ -224,8 +224,8 @@ libc = { version = "0.2", optional = true }
 # GOTCHA: the wasm-bindgen CLI pin in web/Trunk.toml MUST equal the resolved
 # wasm-bindgen LIBRARY version in Cargo.lock (grep -A1 'name = "wasm-bindgen"').
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.126"
-wasm-bindgen-futures = "0.4.76"
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
 console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
